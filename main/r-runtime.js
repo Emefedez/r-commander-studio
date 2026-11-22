@@ -1202,16 +1202,56 @@ local({
     fs.writeFileSync(inFile, String(content || ''), 'utf8');
 
     const script = `
-if (!requireNamespace("rmarkdown", quietly = TRUE)) {
-  stop("Package 'rmarkdown' is not installed.")
+in_file <- ${JSON.stringify(inFile)}
+out_file <- ${JSON.stringify(outFile)}
+
+# Probe standard pandoc locations (system, Homebrew, RStudio, Quarto) if not already found
+if (requireNamespace("rmarkdown", quietly = TRUE) && !isTRUE(rmarkdown::pandoc_available("2.8"))) {
+  cand_dirs <- c(
+    "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin",
+    "/Applications/RStudio.app/Contents/Resources/app/quarto/bin/tools",
+    "/usr/lib/rstudio/resources/app/quarto/bin/tools",
+    file.path(Sys.getenv("HOME"), ".local", "bin")
+  )
+  for (d in cand_dirs) {
+    if (nzchar(d) && dir.exists(d) && file.exists(file.path(d, if (.Platform$OS.type == "windows") "pandoc.exe" else "pandoc"))) {
+      try(rmarkdown::find_pandoc(dir = d, cache = FALSE), silent = TRUE)
+      if (isTRUE(rmarkdown::pandoc_available("2.8"))) break
+    }
+  }
 }
-rmarkdown::render(
-  input = ${JSON.stringify(inFile)},
-  output_format = rmarkdown::html_document(self_contained = TRUE),
-  output_file = ${JSON.stringify(outFile)},
-  quiet = TRUE,
-  envir = new.env(parent = globalenv())
-)
+
+if (requireNamespace("rmarkdown", quietly = TRUE) && isTRUE(rmarkdown::pandoc_available("2.8"))) {
+  rmarkdown::render(
+    input = in_file,
+    output_format = rmarkdown::html_document(self_contained = TRUE),
+    output_file = out_file,
+    quiet = TRUE,
+    envir = new.env(parent = globalenv())
+  )
+} else if (requireNamespace("knitr", quietly = TRUE)) {
+  # Pandoc >= 2.8 not available: execute R chunks with knitr and render HTML directly (zero pandoc dependency!)
+  knitr::opts_knit$set(upload.fun = knitr::image_uri)
+  md_file <- file.path(dirname(out_file), "knitted.md")
+  knitr::knit(input = in_file, output = md_file, quiet = TRUE, envir = new.env(parent = globalenv()))
+  if (requireNamespace("litedown", quietly = TRUE)) {
+    litedown::mark(md_file, output = out_file)
+  } else if (requireNamespace("markdown", quietly = TRUE)) {
+    markdown::mark_html(file = md_file, output = out_file)
+  } else {
+    raw_md <- paste(readLines(md_file, warn = FALSE, encoding = "UTF-8"), collapse = "\\n")
+    esc <- function(s) gsub("&", "&amp;", gsub("<", "&lt;", gsub(">", "&gt;", s, fixed = TRUE), fixed = TRUE), fixed = TRUE)
+    html <- paste0(
+      "<!DOCTYPE html><html><head><meta charset='utf-8'><style>",
+      "body{font-family:system-ui,sans-serif;max-width:860px;margin:24px auto;padding:0 16px;line-height:1.6;color:#222}",
+      "pre{background:#f5f5f7;padding:12px;border-radius:4px;overflow:auto}img{max-width:100%}",
+      "</style></head><body><pre style='white-space:pre-wrap;font-family:inherit'>", esc(raw_md), "</pre></body></html>"
+    )
+    writeLines(html, out_file, useBytes = TRUE)
+  }
+} else {
+  stop("Neither 'rmarkdown' (with pandoc >= 2.8) nor 'knitr' is installed.")
+}
 `;
     try {
       const res = await runRscriptOnce(script, { rscriptPath: this.rscriptPath, timeoutMs, cwd: tmpDir });
