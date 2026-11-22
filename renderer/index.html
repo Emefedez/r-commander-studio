@@ -127,6 +127,14 @@
 
     <!-- Center Editor + Bottom Panel Stack -->
     <main class="center-stack" id="centerStack">
+      <!-- Restore Last Session Banner -->
+      <div id="restoreSessionBar" class="restore-session-bar" hidden>
+        <span class="ico" data-icon="history" data-size="14"></span>
+        <span id="restoreSessionText" class="restore-session-text"></span>
+        <button type="button" id="btnRestoreSession" class="dlg-btn primary"></button>
+        <button type="button" id="btnDismissRestore" class="icon-btn" data-icon="close" data-size="13"></button>
+      </div>
+
       <!-- Inline T3 Code Copilot Fix Bar (Ctrl+I) -->
       <div id="t3InlineBar" class="t3-inline-bar" hidden>
         <span class="ico t3-inline-ico" data-icon="sparkle" data-size="14"></span>

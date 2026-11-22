@@ -284,6 +284,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  mainWindow._allowClose = false;
+  mainWindow.on('close', (event) => {
+    if (!mainWindow._allowClose && rendererReady && !shuttingDown) {
+      event.preventDefault();
+      sendToRenderer('studio:requestClose', {});
+    }
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -730,6 +737,40 @@ function registerIpc() {
   });
   ipcMain.handle('studio:installDesktop', async () => {
     return integrateLinuxDesktop({ createDesktopShortcut: true });
+  });
+  ipcMain.handle('studio:checkSessionPaths', async (_e, { workspaceRoot = '', openFiles = [] } = {}) => {
+    const workspaceExists = Boolean(workspaceRoot && fs.existsSync(workspaceRoot) && fs.statSync(workspaceRoot).isDirectory());
+    const existingFiles = (Array.isArray(openFiles) ? openFiles : []).filter(
+      (p) => typeof p === 'string' && p && fs.existsSync(p) && fs.statSync(p).isFile()
+    );
+    return { workspaceExists, existingFiles };
+  });
+  ipcMain.handle('studio:confirmCloseDialog', async (_e, { count = 1, names = [], lang = 'es' } = {}) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return 1;
+    const isEs = lang === 'es';
+    const previewNames = (Array.isArray(names) ? names : []).slice(0, 6).join(', ');
+    const res = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'R Commander Studio',
+      message: isEs
+        ? `Tienes ${count} archivo(s) con cambios sin guardar.`
+        : `You have ${count} file(s) with unsaved changes.`,
+      detail: previewNames
+        ? (isEs ? `Archivos: ${previewNames}` : `Files: ${previewNames}`)
+        : '',
+      buttons: isEs ? ['Guardar todo', 'No guardar', 'Cancelar'] : ['Save All', "Don't Save", 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true
+    });
+    return res.response;
+  });
+  ipcMain.handle('studio:allowClose', async () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow._allowClose = true;
+      mainWindow.close();
+    }
+    return true;
   });
 
   // --- T3 Code Background Copilot & Cross-Platform Installer IPC ---

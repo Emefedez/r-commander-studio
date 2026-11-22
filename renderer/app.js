@@ -4092,6 +4092,103 @@ boxplot(Sepal.Length ~ Species, data = iris,
     if (window.studio.onUpdaterAvailable) {
       window.studio.onUpdaterAvailable((info) => checkAndPromptForUpdate(false, info));
     }
+
+    // Session persistence: save workspace + open files and offer 1-click restore on startup if still on disk
+    const saveLastSession = () => {
+      try {
+        const openFiles = state.tabs.filter((x) => x.filePath).map((x) => x.filePath);
+        if (!state.workspaceRoot && !openFiles.length) return;
+        const activeFile = activeTab()?.filePath || '';
+        localStorage.setItem(
+          'rcs-last-session',
+          JSON.stringify({ workspaceRoot: state.workspaceRoot || '', openFiles, activeFile, savedAt: Date.now() })
+        );
+      } catch {
+        // ignore storage errors
+      }
+    };
+    window.addEventListener('beforeunload', saveLastSession);
+    setInterval(saveLastSession, 15000);
+
+    // Prompt to save unsaved changes before closing the window
+    window.studio.onRequestClose?.(async () => {
+      saveLastSession();
+      const dirtyTabs = state.tabs.filter((x) => x.kind === 'code' && x.dirty);
+      if (!dirtyTabs.length) {
+        await window.studio.allowClose();
+        return;
+      }
+      const choice = await window.studio.confirmCloseDialog({
+        count: dirtyTabs.length,
+        names: dirtyTabs.map((x) => x.name),
+        lang: getLang()
+      });
+      if (choice === 0) {
+        for (const dt of dirtyTabs) {
+          activateTab(dt.id);
+          await saveFileAction(false);
+          if (dt.dirty) return; // User canceled Save As -> abort close
+        }
+        saveLastSession();
+        await window.studio.allowClose();
+      } else if (choice === 1) {
+        await window.studio.allowClose();
+      }
+    });
+
+    // Offer to retrieve latest work on startup if those paths still exist
+    if (!Array.isArray(init.pendingOpenPaths) || !init.pendingOpenPaths.length) {
+      try {
+        const raw = localStorage.getItem('rcs-last-session');
+        const last = raw ? JSON.parse(raw) : null;
+        if (last && (last.workspaceRoot || (Array.isArray(last.openFiles) && last.openFiles.length))) {
+          const check = await window.studio.checkSessionPaths?.({
+            workspaceRoot: last.workspaceRoot || '',
+            openFiles: last.openFiles || []
+          });
+          if (check && (check.workspaceExists || check.existingFiles?.length)) {
+            const bar = $('restoreSessionBar');
+            const txt = $('restoreSessionText');
+            const btn = $('btnRestoreSession');
+            const dismiss = $('btnDismissRestore');
+            const isEs = getLang() === 'es';
+            const folderLabel = check.workspaceExists ? last.workspaceRoot.split(/[\\/]/).pop() : '';
+            const nFiles = check.existingFiles?.length || 0;
+            const summary = [
+              folderLabel ? `${isEs ? 'Carpeta' : 'Folder'}: ${folderLabel}` : '',
+              nFiles ? `${nFiles} ${isEs ? 'archivo(s)' : 'file(s)'}` : ''
+            ]
+              .filter(Boolean)
+              .join(' · ');
+            if (bar && txt && btn) {
+              txt.textContent = isEs
+                ? `¿Recuperar tu último trabajo? (${summary})`
+                : `Retrieve your latest work? (${summary})`;
+              btn.textContent = isEs ? 'Restaurar sesión' : 'Restore Session';
+              bar.hidden = false;
+              btn.onclick = async () => {
+                bar.hidden = true;
+                if (check.workspaceExists) {
+                  await handleOpenPathTarget({ folderPath: last.workspaceRoot });
+                }
+                for (const fp of check.existingFiles || []) {
+                  await openPathSmart(fp);
+                }
+                if (last.activeFile) {
+                  const found = state.tabs.find((x) => x.filePath === last.activeFile);
+                  if (found) activateTab(found.id);
+                }
+              };
+              dismiss.onclick = () => {
+                bar.hidden = true;
+              };
+            }
+          }
+        }
+      } catch {
+        // ignore invalid saved session
+      }
+    }
   }
 
   // Global Shortcuts

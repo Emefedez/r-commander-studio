@@ -94,6 +94,10 @@ contextBridge.exposeInMainWorld('studio', {
   updaterSetCheckOnOpen: (on) => ipcRenderer.invoke('updater:setCheckOnOpen', on),
   installDesktop: () => ipcRenderer.invoke('studio:installDesktop'),
   openOutputWindow: (payload) => ipcRenderer.invoke('studio:openOutputWindow', payload),
+  checkSessionPaths: (payload) => ipcRenderer.invoke('studio:checkSessionPaths', payload),
+  confirmCloseDialog: (payload) => ipcRenderer.invoke('studio:confirmCloseDialog', payload),
+  allowClose: () => ipcRenderer.invoke('studio:allowClose'),
+  onRequestClose: (cb) => subscribe('studio:requestClose', cb),
 
   // T3 Code Background Copilot & Cross-Platform Installer
   t3Status: () => ipcRenderer.invoke('t3:status'),
