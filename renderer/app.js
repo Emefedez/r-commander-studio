@@ -377,9 +377,16 @@ boxplot(Sepal.Length ~ Species, data = iris,
     dockLeft.classList.toggle('stack-sidebars', bothLeft);
     dockRight.classList.toggle('stack-sidebars', bothRight);
 
-    dockLeft.hidden = !hasLeft && !L.isPeeking('explorer') && !L.isPeeking('rcmdr');
+    const peekingLeft =
+      (L.isPeeking('explorer') && L.sidebars.explorer.dock === 'left') ||
+      (L.isPeeking('rcmdr') && L.sidebars.rcmdr.dock === 'left');
+    const peekingRight =
+      (L.isPeeking('explorer') && L.sidebars.explorer.dock === 'right') ||
+      (L.isPeeking('rcmdr') && L.sidebars.rcmdr.dock === 'right');
+
+    dockLeft.hidden = !hasLeft && !peekingLeft;
     leftGrip.hidden = !hasLeft;
-    dockRight.hidden = !hasRight && !L.isPeeking('explorer') && !L.isPeeking('rcmdr');
+    dockRight.hidden = !hasRight && !peekingRight;
     rightGrip.hidden = !hasRight;
     dockBottom.hidden = !hasBottom;
     bottomGrip.hidden = !hasBottom;
@@ -3286,6 +3293,10 @@ boxplot(Sepal.Length ~ Species, data = iris,
         state.editors[state.focusedGroup]?.trigger('menu', cmd === 'find' ? 'actions.find' : cmd, null);
         break;
       default:
+        if (typeof cmd === 'string' && cmd.startsWith('set-ai-harness:')) {
+          const prov = cmd.slice('set-ai-harness:'.length);
+          await copilot?.setProvider(prov);
+        }
         break;
     }
   }
@@ -4416,19 +4427,35 @@ boxplot(Sepal.Length ~ Species, data = iris,
   renderDockPanes();
 
   // Sidebar header dock/close actions
-  $('btnFlipExplorer').addEventListener('click', () => {
+  $('btnFlipExplorer').addEventListener('click', (e) => {
+    e.stopPropagation();
+    clearTimeout(peekOpenTimer);
+    clearTimeout(peekCloseTimer);
+    state.layout.closePeek('explorer');
     state.layout.flipSidebarDock('explorer');
     applyWorkbenchLayout();
   });
-  $('btnCloseExplorer').addEventListener('click', () => {
+  $('btnCloseExplorer').addEventListener('click', (e) => {
+    e.stopPropagation();
+    clearTimeout(peekOpenTimer);
+    clearTimeout(peekCloseTimer);
+    state.layout.closePeek('explorer');
     state.layout.setSidebarOpen('explorer', false);
     applyWorkbenchLayout();
   });
-  $('btnFlipRcmdr').addEventListener('click', () => {
+  $('btnFlipRcmdr').addEventListener('click', (e) => {
+    e.stopPropagation();
+    clearTimeout(peekOpenTimer);
+    clearTimeout(peekCloseTimer);
+    state.layout.closePeek('rcmdr');
     state.layout.flipSidebarDock('rcmdr');
     applyWorkbenchLayout();
   });
-  $('btnCloseRcmdr').addEventListener('click', () => {
+  $('btnCloseRcmdr').addEventListener('click', (e) => {
+    e.stopPropagation();
+    clearTimeout(peekOpenTimer);
+    clearTimeout(peekCloseTimer);
+    state.layout.closePeek('rcmdr');
     state.layout.setSidebarOpen('rcmdr', false);
     applyWorkbenchLayout();
   });

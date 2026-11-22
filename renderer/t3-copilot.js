@@ -22,7 +22,9 @@
 
       this.messages = [];
       this.attachments = [];
-      this.selectedModel = localStorage.getItem('rcs-t3-model') || 'auto';
+      this.selectedProvider = localStorage.getItem('rcs-t3-provider') || '';
+      this.selectedModel = localStorage.getItem('rcs-t3-model') || '';
+      this.providers = [];
       this.recording = false;
       this._speechRec = null;
       this._mediaRecorder = null;
@@ -34,7 +36,7 @@
 
       this._initDom();
       this.refreshStatus();
-      this.refreshModels();
+      this.refreshProviders();
     }
 
     _t(key, fallback) {
@@ -64,6 +66,7 @@
       this.attachBtn = document.getElementById('btnT3Attach');
       this.attachMenuEl = document.getElementById('t3AttachMenu');
       this.micBtn = document.getElementById('btnT3Mic');
+      this.providerSelectEl = document.getElementById('t3ProviderSelect');
       this.modelSelectEl = document.getElementById('t3ModelSelect');
 
       // Inline Ctrl+I bar (#t3InlineBar)
@@ -99,10 +102,19 @@
       if (this.micBtn) {
         this.micBtn.addEventListener('click', () => this._toggleMic());
       }
+      if (this.providerSelectEl) {
+        this.providerSelectEl.addEventListener('change', () => {
+          this.selectedProvider = this.providerSelectEl.value || '';
+          localStorage.setItem('rcs-t3-provider', this.selectedProvider);
+          this.selectedModel = localStorage.getItem(`rcs-t3-model:${this.selectedProvider}`) || '';
+          this.refreshModels(false);
+        });
+      }
       if (this.modelSelectEl) {
         this.modelSelectEl.addEventListener('change', () => {
-          this.selectedModel = this.modelSelectEl.value || 'auto';
+          this.selectedModel = this.modelSelectEl.value || '';
           localStorage.setItem('rcs-t3-model', this.selectedModel);
+          if (this.selectedProvider) localStorage.setItem(`rcs-t3-model:${this.selectedProvider}`, this.selectedModel);
         });
       }
       document.addEventListener('click', (e) => {
@@ -169,23 +181,66 @@
       }
     }
 
-    async refreshModels() {
-      if (!this.modelSelectEl) return;
+    async refreshProviders() {
+      if (!this.providerSelectEl) return;
       const fallback = [
-        { id: 'auto', label: 'T3 Code (Auto)' },
-        { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-        { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-        { id: 'gpt-5.4', label: 'GPT-5.4 / Codex' },
-        { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro' },
-        { id: 'r-expert', label: 'Built-in R Expert (Offline)' }
+        { id: 'claude', label: 'Claude Code', available: false },
+        { id: 'antigravity', label: 'Antigravity', available: false },
+        { id: 'codex', label: 'Codex', available: false },
+        { id: 'opencode', label: 'OpenCode', available: false },
+        { id: 't3code', label: 'T3 Code / Local', available: false },
+        { id: 'r-expert', label: 'R Expert (Offline)', available: true }
       ];
-      let models = fallback;
+      let list = fallback;
       try {
-        const res = await window.studio?.t3Models?.();
-        if (res?.ok && Array.isArray(res.models) && res.models.length) models = res.models;
+        const res = await window.studio?.t3Providers?.();
+        if (res?.ok && Array.isArray(res.providers) && res.providers.length) list = res.providers;
       } catch {
         // use fallback
       }
+      this.providers = list;
+      if (!this.selectedProvider || !list.some((p) => p.id === this.selectedProvider)) {
+        const firstAvail = list.find((p) => p.available) || list[0];
+        this.selectedProvider = firstAvail?.id || 'r-expert';
+      }
+      this.providerSelectEl.textContent = '';
+      for (const p of list) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.available ? p.label : `${p.label} (n/a)`;
+        if (p.id === this.selectedProvider) opt.selected = true;
+        this.providerSelectEl.append(opt);
+      }
+      await this.refreshModels(false);
+    }
+
+    async setProvider(providerId) {
+      if (!providerId) return;
+      this.selectedProvider = providerId;
+      localStorage.setItem('rcs-t3-provider', providerId);
+      if (this.providerSelectEl) this.providerSelectEl.value = providerId;
+      await this.refreshProviders();
+      this.toggleWindow(true);
+    }
+
+    async refreshModels(fresh = false) {
+      if (!this.modelSelectEl) return;
+      const prov = this.selectedProvider || 't3code';
+      const loadingOpt = document.createElement('option');
+      loadingOpt.value = this.selectedModel || '';
+      loadingOpt.textContent = this._isEs() ? 'Cargando modelos...' : 'Loading models...';
+      this.modelSelectEl.textContent = '';
+      this.modelSelectEl.append(loadingOpt);
+
+      let models = [{ id: '', label: 'Default' }];
+      try {
+        const res = await window.studio?.t3Models?.({ provider: prov, fresh });
+        if (res?.ok && Array.isArray(res.models) && res.models.length) models = res.models;
+      } catch {
+        // keep default
+      }
+      const savedForProv = localStorage.getItem(`rcs-t3-model:${prov}`);
+      if (savedForProv !== null) this.selectedModel = savedForProv;
       this.modelSelectEl.textContent = '';
       for (const m of models) {
         const opt = document.createElement('option');
@@ -482,7 +537,7 @@
       if (this.windowOpen) {
         this.updateContextPills();
         this.refreshStatus();
-        this.refreshModels();
+        this.refreshProviders();
         this.inputEl?.focus();
       }
     }
@@ -531,7 +586,8 @@
       try {
         const res = await window.studio.t3Ask({
           mode: 'inline-fix',
-          model: this.selectedModel || 'auto',
+          provider: this.selectedProvider || '',
+          model: this.selectedModel || '',
           prompt,
           code: tab?.model?.getValue?.() || '',
           selection,
@@ -626,7 +682,8 @@
       try {
         const res = await window.studio.t3Ask({
           mode: 'chat',
-          model: this.selectedModel || 'auto',
+          provider: this.selectedProvider || '',
+          model: this.selectedModel || '',
           prompt,
           code: tab?.model?.getValue?.() || '',
           selection,

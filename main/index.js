@@ -750,9 +750,14 @@ function registerIpc() {
     if (!t3code) t3code = new T3CodeService();
     return t3code.askCopilot(opts);
   });
-  ipcMain.handle('t3:models', async () => {
+  ipcMain.handle('t3:providers', async () => {
     if (!t3code) t3code = new T3CodeService();
-    return t3code.getModels();
+    return t3code.getProviders();
+  });
+  ipcMain.handle('t3:models', async (_e, opts = {}) => {
+    if (!t3code) t3code = new T3CodeService();
+    const provider = typeof opts === 'string' ? opts : opts?.provider || 'auto';
+    return t3code.getModels(provider, { fresh: Boolean(opts?.fresh) });
   });
   ipcMain.handle('t3:transcribe', async (_e, opts = {}) => {
     if (!t3code) t3code = new T3CodeService();

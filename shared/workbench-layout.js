@@ -70,6 +70,7 @@
     setSidebarOpen(id, open) {
       if (!this.sidebars[id]) return false;
       this.sidebars[id].open = Boolean(open);
+      if (this.peekingSidebar === id) this.peekingSidebar = null;
       return this.sidebars[id].open;
     }
 

@@ -109,6 +109,18 @@
             { sep: true },
             { label: t('copilotToggle'), accel: 'Ctrl+Alt+B', cmd: 'toggle-copilot' },
             { label: t('copilotInlineFix'), accel: 'Ctrl+I', cmd: 'inline-copilot' },
+            {
+              label: t('copilotChooseHarness'),
+              submenu: [
+                { label: 'Claude Code', cmd: 'set-ai-harness:claude' },
+                { label: 'Antigravity (agy)', cmd: 'set-ai-harness:antigravity' },
+                { label: 'Codex', cmd: 'set-ai-harness:codex' },
+                { label: 'OpenCode', cmd: 'set-ai-harness:opencode' },
+                { sep: true },
+                { label: 'T3 Code / Local', cmd: 'set-ai-harness:t3code' },
+                { label: 'R Expert (Offline)', cmd: 'set-ai-harness:r-expert' }
+              ]
+            },
             { label: t('copilotInstallBtn'), cmd: 'install-t3code' }
           ]
         },

@@ -407,6 +407,7 @@
     copilotAttachBtn: 'Attach code snippet or file',
     copilotMicBtn: 'Voice input (dictate prompt)',
     copilotModelTitle: 'Choose AI model',
+    copilotChooseHarness: 'Choose AI Harness',
     copilotSendBtn: 'Send',
     toggleEditorWrapBtn: 'Toggle Editor Word Wrap (Alt+Z)'
   };
@@ -811,6 +812,7 @@
     copilotAttachBtn: 'Adjuntar fragmento de código o archivo',
     copilotMicBtn: 'Entrada de voz (dictar consulta)',
     copilotModelTitle: 'Elegir modelo de IA',
+    copilotChooseHarness: 'Elegir harness de IA',
     copilotSendBtn: 'Enviar',
     toggleEditorWrapBtn: 'Activar / desactivar ajuste de línea en editor (Alt+Z)'
   };

@@ -184,12 +184,122 @@ function findExecutableOnPath(names, extraDirs = []) {
   return null;
 }
 
+const HARNESS_PROVIDERS = {
+  claude: { label: 'Claude Code', names: ['claude'] },
+  antigravity: { label: 'Antigravity', names: ['agy', 'antigravity'] },
+  codex: { label: 'Codex', names: ['codex'] },
+  opencode: { label: 'OpenCode', names: ['opencode'] }
+};
+
+const CLAUDE_MODELS = [
+  { id: '', label: 'Default' },
+  { id: 'opus', label: 'Opus (latest)' },
+  { id: 'sonnet', label: 'Sonnet (latest)' },
+  { id: 'haiku', label: 'Haiku (latest)' }
+];
+
+const MODEL_NAME_RE = /^[\w.:/@#-]{1,120}$/;
+
+function parseAgyModels(out) {
+  return String(out || '')
+    .split('\n')
+    .map((l) => l.match(/^([\w.:/-]+)\t(.+)$/))
+    .filter(Boolean)
+    .map((m) => ({ id: m[1], label: m[2].trim() }));
+}
+
+function parseOpenCodeModels(out) {
+  return String(out || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => MODEL_NAME_RE.test(l) && l.includes('/'))
+    .map((id) => ({ id, label: id }));
+}
+
+function parseOpenCodeJsonOutput(out) {
+  let parts = [];
+  for (const line of String(out || '').split('\n')) {
+    let val;
+    try {
+      val = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (val.type === 'tool_use') parts = [];
+    else if (val.type === 'text' && typeof val.part?.text === 'string' && val.part.text.trim()) {
+      parts.push(val.part.text.trim());
+    }
+  }
+  return parts.join('\n\n');
+}
+
 class T3CodeService {
   constructor() {
     this.host = DEFAULT_T3_HOST;
     this.port = DEFAULT_T3_PORT;
     this._daemonProc = null;
     this._lastStatus = null;
+    this._harnessCache = null;
+    this._modelsCache = new Map();
+  }
+
+  /**
+   * Resolves the 4 main AI harnesses (Claude Code, Antigravity, Codex, OpenCode) plus whisper/ffmpeg
+   * via login shell PATH so desktop launchers (.desktop / AppImage) find mise/npm/cargo/~/.local/bin tools.
+   */
+  async findHarnesses(force = false) {
+    if (this._harnessCache && !force) return this._harnessCache;
+    const extra = [
+      path.join(os.homedir(), '.local', 'bin'),
+      path.join(os.homedir(), '.cargo', 'bin'),
+      '/usr/local/bin',
+      '/opt/homebrew/bin'
+    ];
+    const found = {};
+
+    if (process.platform !== 'win32') {
+      const shell = process.env.SHELL || '/bin/bash';
+      const allNames = [...Object.values(HARNESS_PROVIDERS).flatMap((p) => p.names), 'voxtype', 'ffmpeg', 'whisper', 'whisper-cli'];
+      const script = allNames.map((n) => `printf '%s=%s\\n' ${n} "$(command -v ${n} 2>/dev/null)"`).join('; ');
+      const res = await execFileAsync(shell, ['-lic', script], {
+        timeoutMs: 8000,
+        env: { ...process.env, TERM: 'dumb' }
+      });
+      for (const line of String(res.stdout || '').split('\n')) {
+        const m = line.match(/^([\w-]+)=(\/\S+)$/);
+        if (m) found[m[1]] = m[2];
+      }
+    }
+
+    const resolved = {};
+    for (const [id, p] of Object.entries(HARNESS_PROVIDERS)) {
+      const winNames = process.platform === 'win32' ? p.names.flatMap((n) => [`${n}.exe`, `${n}.cmd`, n]) : p.names;
+      resolved[id] = p.names.map((n) => found[n]).find(Boolean) || findExecutableOnPath(winNames, extra) || null;
+    }
+    this._harnessCache = resolved;
+    return resolved;
+  }
+
+  async getProviders() {
+    const harnesses = await this.findHarnesses();
+    const probe = await this.probeHttpBackend();
+    let lmdeck = false;
+    try {
+      await httpGetJson('http://127.0.0.1:11434/v1/models', { timeoutMs: 900 });
+      lmdeck = true;
+    } catch {
+      lmdeck = false;
+    }
+    const providers = [
+      ...Object.entries(HARNESS_PROVIDERS).map(([id, p]) => ({
+        id,
+        label: p.label,
+        available: Boolean(harnesses[id])
+      })),
+      { id: 't3code', label: 'T3 Code / Local', available: Boolean(probe.running || lmdeck) },
+      { id: 'r-expert', label: 'R Expert (Offline)', available: true }
+    ];
+    return { ok: true, providers };
   }
 
   get baseUrl() {
@@ -655,22 +765,67 @@ class T3CodeService {
   }
 
   /**
-   * Lists available models across T3 Code, LMDeck/Ollama, installed CLI agents, and built-in presets.
+   * Lists real models offered by the chosen harness (Claude Code, Antigravity `agy models`,
+   * OpenCode `opencode models`, Codex `~/.codex/config.toml`, T3 Code / LMDeck `/v1/models`, or R Expert).
    */
-  async getModels() {
+  async getModels(provider = 'auto', { fresh = false } = {}) {
+    if (provider === 'r-expert') {
+      return { ok: true, provider, models: [{ id: 'r-expert', label: 'Built-in R Expert (Offline)', provider: 'r-expert' }] };
+    }
+
+    if (provider && HARNESS_PROVIDERS[provider]) {
+      if (!fresh && this._modelsCache.has(provider)) {
+        return { ok: true, provider, models: this._modelsCache.get(provider) };
+      }
+      const harnesses = await this.findHarnesses();
+      const bin = harnesses[provider];
+      let list = [];
+      if (provider === 'claude') {
+        list = CLAUDE_MODELS.map((m) => ({ ...m, provider: 'claude' }));
+      } else if (provider === 'codex') {
+        let cfgModel = '';
+        try {
+          const cfg = await fsp.readFile(path.join(os.homedir(), '.codex', 'config.toml'), 'utf8');
+          cfgModel = cfg.match(/^model\s*=\s*"([\w.:/-]+)"/m)?.[1] || '';
+        } catch {
+          // ignore
+        }
+        list = [
+          { id: '', label: cfgModel ? `Default (${cfgModel})` : 'Default (Codex config)', provider: 'codex' },
+          ...(cfgModel ? [{ id: cfgModel, label: `${cfgModel} (Codex settings)`, provider: 'codex' }] : [])
+        ];
+      } else if (provider === 'antigravity' && bin) {
+        const res = await execFileAsync(bin, ['models'], { timeoutMs: 20000, env: { ...process.env, NO_COLOR: '1' } });
+        const parsed = parseAgyModels(res.stdout);
+        list = [{ id: '', label: 'Default (Antigravity)', provider: 'antigravity' }, ...parsed.map((m) => ({ ...m, provider: 'antigravity' }))];
+      } else if (provider === 'opencode' && bin) {
+        const res = await execFileAsync(bin, ['models'], {
+          timeoutMs: 20000,
+          maxBuffer: 4 * 1024 * 1024,
+          env: { ...process.env, NO_COLOR: '1', OPENCODE_DISABLE_AUTOUPDATE: '1' }
+        });
+        const parsed = parseOpenCodeModels(res.stdout);
+        list = [{ id: '', label: 'Default (OpenCode)', provider: 'opencode' }, ...parsed.map((m) => ({ ...m, provider: 'opencode' }))];
+      }
+      if (!list.length) {
+        list = [{ id: '', label: `Default (${HARNESS_PROVIDERS[provider].label})`, provider }];
+      }
+      if (list.length > 1) this._modelsCache.set(provider, list);
+      return { ok: true, provider, models: list };
+    }
+
+    // T3 Code / LMDeck / Auto
     const models = [];
     const seen = new Set();
-    const push = (id, label, provider) => {
-      if (!id || seen.has(id)) return;
+    const push = (id, label, prov) => {
+      if (seen.has(id)) return;
       seen.add(id);
-      models.push({ id, label, provider });
+      models.push({ id, label, provider: prov });
     };
+    push('', 'Auto (Default)', 't3code');
 
-    push('auto', 'T3 Code (Auto)', 'auto');
-
-    // Probe T3 Code & LMDeck OpenAI-compatible /v1/models endpoints
     const token = this.readConnectionToken();
-    for (const [url, provider] of [
+    for (const [url, prov] of [
       [`${this.baseUrl}/v1/models`, 't3code'],
       ['http://127.0.0.1:11434/v1/models', 'lmdeck']
     ]) {
@@ -682,21 +837,13 @@ class T3CodeService {
         const list = Array.isArray(res?.data) ? res.data : Array.isArray(res?.models) ? res.models : [];
         for (const m of list) {
           const id = typeof m === 'string' ? m : m?.id || m?.name;
-          if (id) push(id, `${id} (${provider === 't3code' ? 'T3 Code' : 'Local'})`, provider);
+          if (id) push(id, `${id} (${prov === 't3code' ? 'T3 Code' : 'Local'})`, prov);
         }
       } catch {
         // endpoint offline
       }
     }
-
-    // Standard frontier & CLI presets
-    push('claude-sonnet-4-6', 'Claude Sonnet 4.6', 'anthropic');
-    push('claude-opus-4-6', 'Claude Opus 4.6', 'anthropic');
-    push('gpt-5.4', 'GPT-5.4 / Codex', 'openai');
-    push('gemini-3.1-pro', 'Gemini 3.1 Pro', 'google');
-    push('r-expert', 'Built-in R Expert (Offline)', 'local');
-
-    return { ok: true, models };
+    return { ok: true, provider: provider || 't3code', models };
   }
 
   /**
@@ -939,22 +1086,131 @@ class T3CodeService {
     };
   }
 
+  async _runHarness(provider, { fullPrompt, model = '' }) {
+    const harnesses = await this.findHarnesses();
+    const bin = harnesses[provider];
+    if (!bin) {
+      throw new Error(`${HARNESS_PROVIDERS[provider]?.label || provider} is not installed on PATH.`);
+    }
+    const cleanModel = model && MODEL_NAME_RE.test(model) ? model : '';
+    const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rcs-ai-'));
+    try {
+      let args = [];
+      let stdinText = null;
+      let env = { ...process.env, NO_COLOR: '1' };
+      let codexOutFile = null;
+
+      if (provider === 'claude') {
+        args = ['-p', '--output-format', 'json'];
+        if (cleanModel) args.push('--model', cleanModel);
+        stdinText = fullPrompt;
+      } else if (provider === 'antigravity') {
+        args = ['-p', fullPrompt, '--output-format', 'json'];
+        if (cleanModel) args.push('--model', cleanModel);
+      } else if (provider === 'codex') {
+        codexOutFile = path.join(tmpDir, 'answer.txt');
+        args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--ephemeral', '--color', 'never', '-o', codexOutFile];
+        if (cleanModel) args.push('-m', cleanModel);
+        args.push('-');
+        stdinText = fullPrompt;
+      } else if (provider === 'opencode') {
+        args = ['run', '--format', 'json'];
+        if (cleanModel) args.push('-m', cleanModel);
+        env.OPENCODE_DISABLE_AUTOUPDATE = '1';
+        stdinText = fullPrompt;
+      } else {
+        throw new Error(`Unknown harness: ${provider}`);
+      }
+
+      const rawOut = await new Promise((resolve, reject) => {
+        const child = spawn(bin, args, { cwd: tmpDir, env, stdio: ['pipe', 'pipe', 'pipe'] });
+        let out = '';
+        let err = '';
+        const timer = setTimeout(() => {
+          try {
+            child.kill('SIGTERM');
+          } catch {
+            // ignore
+          }
+          reject(new Error(`${HARNESS_PROVIDERS[provider].label} timed out.`));
+        }, 120000);
+        child.stdout.on('data', (d) => {
+          out += d.toString('utf8');
+        });
+        child.stderr.on('data', (d) => {
+          err += d.toString('utf8');
+        });
+        child.on('error', (e) => {
+          clearTimeout(timer);
+          reject(e);
+        });
+        child.on('close', (code) => {
+          clearTimeout(timer);
+          if (code !== 0 && !out.trim()) {
+            reject(new Error(err.trim() || `${HARNESS_PROVIDERS[provider].label} exited with code ${code}`));
+          } else {
+            resolve(out);
+          }
+        });
+        child.stdin.on('error', () => {});
+        if (stdinText != null) child.stdin.end(stdinText);
+        else child.stdin.end();
+      });
+
+      let reply = '';
+      if (provider === 'claude') {
+        try {
+          reply = String(JSON.parse(rawOut).result || '').trim();
+        } catch {
+          reply = rawOut.trim();
+        }
+      } else if (provider === 'antigravity') {
+        try {
+          reply = String(JSON.parse(rawOut).response || '').trim();
+        } catch {
+          reply = rawOut.trim();
+        }
+      } else if (provider === 'codex') {
+        reply = fs.existsSync(codexOutFile) ? (await fsp.readFile(codexOutFile, 'utf8')).trim() : rawOut.trim();
+      } else if (provider === 'opencode') {
+        reply = parseOpenCodeJsonOutput(rawOut) || rawOut.trim();
+      }
+
+      if (!reply) throw new Error(`${HARNESS_PROVIDERS[provider].label} returned an empty response.`);
+      const codeMatch = reply.match(/```(?:r|rmd|markdown)?\s*\n([\s\S]*?)```/i);
+      return {
+        ok: true,
+        backend: cleanModel ? `${provider}:${cleanModel}` : provider,
+        reply,
+        code: codeMatch ? codeMatch[1].trim() : ''
+      };
+    } finally {
+      await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   /**
-   * Executes a Copilot chat or inline-fix request across the best available backend:
-   *  1. Running T3 Code backend (`127.0.0.1:3773`) or `lmdeck` OpenAI-compatible server (`127.0.0.1:11434`)
-   *  2. Local CLI assistant (`claude -p`, `codex`, `opencode`, or via `wsl.exe` on Windows)
-   *  3. Built-in R / Rcmdr expert engine (instant offline fallback)
+   * Executes a Copilot chat or inline-fix request across the chosen harness (Claude Code, Antigravity,
+   * Codex, OpenCode), T3 Code / LMDeck OpenAI-compatible servers, or Built-in R Expert fallback.
    */
   async askCopilot(opts = {}) {
-    if (opts.model === 'r-expert') {
+    const provider = opts.provider || '';
+    if (provider === 'r-expert' || opts.model === 'r-expert') {
       return this._localRExpertFallback(opts);
     }
-    await this.startBackend().catch(() => {});
+
     const { system, fullPrompt } = this._buildPrompt(opts);
+
+    // If user explicitly picked one of the 4 main CLI harnesses, run it directly with their chosen model!
+    if (provider && HARNESS_PROVIDERS[provider]) {
+      return this._runHarness(provider, { fullPrompt, model: opts.model || '' });
+    }
+
+    await this.startBackend().catch(() => {});
     const chosenModel = opts.model && opts.model !== 'auto' ? opts.model : 'default';
 
-    // 1. Try OpenAI-compatible HTTP endpoint on 127.0.0.1:11434 (lmdeck / local T3 proxy)
-    for (const url of ['http://127.0.0.1:11434/v1/chat/completions', `${this.baseUrl}/v1/chat/completions`]) {
+    // 1. Try OpenAI-compatible HTTP endpoint on 127.0.0.1:11434 (lmdeck / local T3 proxy) or :3773
+    for (const url of [`${this.baseUrl}/v1/chat/completions`, 'http://127.0.0.1:11434/v1/chat/completions']) {
       try {
         const token = this.readConnectionToken();
         const res = await httpPostJson(
@@ -968,7 +1224,7 @@ class T3CodeService {
             temperature: 0.2
           },
           {
-            timeoutMs: 25000,
+            timeoutMs: 35000,
             headers: token ? { Authorization: `Bearer ${token}` } : {}
           }
         );
@@ -987,20 +1243,15 @@ class T3CodeService {
       }
     }
 
-    // 2. Try local CLI agent (`claude -p` or `codex`)
-    const agent = this.detectLocalCliAgent();
-    if (agent && (agent.id === 'claude' || agent.id === 'opencode')) {
-      const args = agent.id === 'claude' ? ['-p', fullPrompt] : ['run', fullPrompt];
-      const cliRes = await execFileAsync(agent.path, args, { timeoutMs: 35000 });
-      if (cliRes.ok && cliRes.stdout.trim()) {
-        const reply = cliRes.stdout.trim();
-        const codeMatch = reply.match(/```(?:r|rmd|markdown)?\s*\n([\s\S]*?)```/i);
-        return {
-          ok: true,
-          backend: `t3-${agent.id}`,
-          reply,
-          code: codeMatch ? codeMatch[1].trim() : ''
-        };
+    // 2. Try first installed CLI harness (`claude`, `antigravity`, `codex`, `opencode`)
+    const harnesses = await this.findHarnesses();
+    for (const id of ['claude', 'antigravity', 'codex', 'opencode']) {
+      if (harnesses[id]) {
+        try {
+          return await this._runHarness(id, { fullPrompt, model: '' });
+        } catch {
+          // try next harness
+        }
       }
     }
 

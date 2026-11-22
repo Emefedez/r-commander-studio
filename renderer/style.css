@@ -2696,11 +2696,12 @@ footer.statusbar {
   background: rgba(255, 85, 85, 0.16);
   box-shadow: 0 0 0 1px var(--accent-red);
 }
+.t3-provider-select,
 .t3-model-select {
   height: 24px;
-  max-width: 175px;
-  min-width: 90px;
-  padding: 0 6px;
+  max-width: 125px;
+  min-width: 74px;
+  padding: 0 5px;
   background: var(--bg-sidebar);
   border: 1px solid var(--border-field);
   border-radius: 3px;
@@ -2708,6 +2709,10 @@ footer.statusbar {
   font-size: 11px;
   cursor: pointer;
 }
+.t3-model-select {
+  max-width: 145px;
+}
+.t3-provider-select:focus,
 .t3-model-select:focus {
   outline: none;
   border-color: var(--accent-purple);
