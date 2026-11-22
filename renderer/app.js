@@ -433,8 +433,29 @@ boxplot(Sepal.Length ~ Species, data = iris,
   function dismissPeekAfterSelection(id) {
     clearTimeout(peekOpenTimer);
     clearTimeout(peekCloseTimer);
+    // In small tiled windows (<= 760px), open sidebars act as overlay drawers, so auto-close them after a choice!
+    if (window.innerWidth <= 760 && state.layout.sidebars[id]?.open) {
+      state.layout.setSidebarOpen(id, false);
+      applyWorkbenchLayout();
+      return;
+    }
     if (state.layout.onSelectionInSidebar(id)) applyWorkbenchLayout();
   }
+
+  // Responsive adaptation when window is resized to a small/tiled width
+  let lastNarrowMode = window.innerWidth <= 920;
+  window.addEventListener('resize', () => {
+    const isNarrow = window.innerWidth <= 920;
+    if (isNarrow && !lastNarrowMode) {
+      // If both sidebars are open on opposite sides when the window shrinks below 920px, collapse Explorer so the editor stays wide
+      if (state.layout.sidebars.explorer.open && state.layout.sidebars.rcmdr.open && state.layout.sidebars.explorer.dock !== state.layout.sidebars.rcmdr.dock) {
+        state.layout.setSidebarOpen('explorer', false);
+        applyWorkbenchLayout();
+      }
+    }
+    lastNarrowMode = isNarrow;
+    state.editors.forEach((ed) => ed?.layout());
+  });
 
   for (const [id, sbId, actId] of [
     ['explorer', 'sidebarExplorer', 'actExplorer'],
@@ -518,7 +539,14 @@ boxplot(Sepal.Length ~ Species, data = iris,
     for (const ed of state.editors) {
       ed?.updateOptions({ wordWrap: wrapMode });
     }
+    $('btnWrap0')?.classList.toggle('active', s.editorWordWrap !== false);
     $('btnPanelLimitOutput')?.classList.toggle('active', Boolean(s.limitOutput));
+    if ($('panelMaxPrintInput')) {
+      $('panelMaxPrintInput').value = String(Number(s.maxOutputItems) || 24);
+      $('panelMaxPrintInput').disabled = !s.limitOutput;
+    }
+    $('btnPanelSkipHelp')?.classList.toggle('active', Boolean(s.skipHelp));
+    $('btnPanelFixedNotation')?.classList.toggle('active', Boolean(s.fixedNotation));
     $('btnPanelWordWrap')?.classList.toggle('active', s.consoleWrap !== false);
     $('btnRcmdrAutoClose')?.classList.toggle('active', Boolean(s.closeMenusAfterChoice));
     if ($('btnRcmdrMenuAction')) {
@@ -2016,6 +2044,61 @@ boxplot(Sepal.Length ~ Species, data = iris,
       return;
     }
 
+    const startInlineRename = (row, node) => {
+      const nameSpan = row.querySelector('.fs-row-name');
+      if (!nameSpan || row.querySelector('.fs-rename-input')) return;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'fs-rename-input';
+      inp.value = node.name;
+      nameSpan.hidden = true;
+      nameSpan.insertAdjacentElement('afterend', inp);
+      inp.focus();
+      const dotIdx = !node.isDir ? node.name.lastIndexOf('.') : -1;
+      inp.setSelectionRange(0, dotIdx > 0 ? dotIdx : node.name.length);
+      let done = false;
+      const finish = async (commit) => {
+        if (done) return;
+        done = true;
+        const next = inp.value.trim();
+        inp.remove();
+        nameSpan.hidden = false;
+        if (commit && next && next !== node.name) {
+          await window.studio.renamePath({ oldPath: node.path, newName: next });
+          await refreshFolderTree();
+        }
+      };
+      inp.addEventListener('click', (ev) => ev.stopPropagation());
+      inp.addEventListener('dblclick', (ev) => ev.stopPropagation());
+      inp.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          finish(true);
+        } else if (ev.key === 'Escape') {
+          ev.preventDefault();
+          finish(false);
+        }
+      });
+      inp.addEventListener('blur', () => finish(true));
+    };
+
+    const promptCreateInDir = async (dirPath, isDir) => {
+      const targetDir = dirPath || state.workspaceRoot;
+      if (!targetDir) {
+        await openFolderAction();
+        return;
+      }
+      const name = window.prompt(t(isDir ? 'newFolderPrompt' : 'newFilePrompt'), isDir ? 'data' : 'script.R');
+      if (!name || !name.trim()) return;
+      if (isDir) {
+        await window.studio.createDir({ dir: targetDir, name: name.trim() });
+      } else {
+        const res = await window.studio.createFile({ dir: targetDir, name: name.trim(), content: '' });
+        if (res?.ok && res.filePath) await openPathSmart(res.filePath);
+      }
+      await refreshFolderTree();
+    };
+
     const build = (nodes, parent, depth = 0) => {
       for (const node of nodes || []) {
         if (node.isDir) {
@@ -2035,6 +2118,33 @@ boxplot(Sepal.Length ~ Species, data = iris,
             kids.hidden = !kids.hidden;
             row.querySelector('.fs-chev').innerHTML = svg(kids.hidden ? 'chevron-right' : 'chevron-down', { size: 12 });
           });
+          row.querySelector('.fs-row-name').addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startInlineRename(row, node);
+          });
+          row.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const isEs = getLang() === 'es';
+            showContextMenu(e.clientX, e.clientY, [
+              { icon: 'new-file', label: isEs ? 'Nuevo archivo aquí...' : 'New File Here...', action: () => promptCreateInDir(node.path, false) },
+              { icon: 'new-folder', label: isEs ? 'Nueva carpeta aquí...' : 'New Folder Here...', action: () => promptCreateInDir(node.path, true) },
+              { sep: true },
+              { icon: 'edit', label: isEs ? 'Renombrar' : 'Rename', action: () => startInlineRename(row, node) },
+              { icon: 'copy', label: isEs ? 'Copiar ruta' : 'Copy Path', action: () => navigator.clipboard.writeText(node.path) },
+              { sep: true },
+              {
+                icon: 'clear',
+                label: isEs ? 'Eliminar carpeta' : 'Delete Folder',
+                action: async () => {
+                  if (window.confirm(t('deleteConfirm', node.name))) {
+                    await window.studio.deletePath(node.path);
+                    await refreshFolderTree();
+                  }
+                }
+              }
+            ]);
+          });
           wrap.append(row, kids);
           parent.append(wrap);
         } else {
@@ -2053,13 +2163,13 @@ boxplot(Sepal.Length ~ Species, data = iris,
             `</span>`;
           row.querySelector('.fs-row-name').textContent = node.name;
 
-          row.querySelector('.fs-act-ren').addEventListener('click', async (e) => {
+          row.querySelector('.fs-act-ren').addEventListener('click', (e) => {
             e.stopPropagation();
-            const next = window.prompt(t('renamePrompt'), node.name);
-            if (next && next.trim() && next.trim() !== node.name) {
-              await window.studio.renamePath({ oldPath: node.path, newName: next.trim() });
-              await refreshFolderTree();
-            }
+            startInlineRename(row, node);
+          });
+          row.querySelector('.fs-row-name').addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startInlineRename(row, node);
           });
           row.querySelector('.fs-act-del').addEventListener('click', async (e) => {
             e.stopPropagation();
@@ -2067,6 +2177,48 @@ boxplot(Sepal.Length ~ Species, data = iris,
               await window.studio.deletePath(node.path);
               await refreshFolderTree();
             }
+          });
+          row.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const isEs = getLang() === 'es';
+            showContextMenu(e.clientX, e.clientY, [
+              { icon: 'file', label: isEs ? 'Abrir' : 'Open', action: () => openPathSmart(node.path) },
+              {
+                icon: 'new-window',
+                label: isEs ? 'Abrir en ventana nueva' : 'Open in New Window',
+                action: async () => {
+                  await openPathSmart(node.path);
+                  const opened = state.tabs.find((x) => x.filePath === node.path);
+                  if (opened) popoutTabWindow(opened);
+                }
+              },
+              {
+                icon: 'sparkle',
+                label: isEs ? 'Adjuntar a T3 Code Copilot' : 'Attach to T3 Code Copilot',
+                action: async () => {
+                  const f = await window.studio.openPath(node.path);
+                  if (f?.content && copilot) {
+                    copilot.addAttachment({ name: f.name, kind: 'file', content: f.content, language: /\.rmd$/i.test(f.name) ? 'rmd' : 'r' });
+                    copilot.toggleWindow(true);
+                  }
+                }
+              },
+              { sep: true },
+              { icon: 'edit', label: isEs ? 'Renombrar' : 'Rename', action: () => startInlineRename(row, node) },
+              { icon: 'copy', label: isEs ? 'Copiar ruta' : 'Copy Path', action: () => navigator.clipboard.writeText(node.path) },
+              { sep: true },
+              {
+                icon: 'clear',
+                label: isEs ? 'Eliminar archivo' : 'Delete File',
+                action: async () => {
+                  if (window.confirm(t('deleteConfirm', node.name))) {
+                    await window.studio.deletePath(node.path);
+                    await refreshFolderTree();
+                  }
+                }
+              }
+            ]);
           });
           row.addEventListener('click', (e) => {
             dismissPeekAfterSelection('explorer');
@@ -2681,21 +2833,155 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
   }
 
-  // --- Panel Tabs ---
+  // --- Panel Tabs & Split Bottom Dock (e.g., arf + Plots simultaneously) ---
+  const DOCK_PANE_MAP = {
+    console: 'dockConsole',
+    arf: 'dockArf',
+    plots: 'dockPlots',
+    problems: 'dockProblems',
+    help: 'dockHelp'
+  };
+  let splitPanelTab = localStorage.getItem('rcs-split-panel-tab') || null;
+
+  function renderDockPanes() {
+    const primary = state.activePanelTab || 'console';
+    const secondary = splitPanelTab && splitPanelTab !== primary && DOCK_PANE_MAP[splitPanelTab] ? splitPanelTab : null;
+    const primaryCol = $('panelPrimaryCol');
+    const secondaryCol = $('panelSecondaryCol');
+    const secondaryHost = $('panelSecondaryHost');
+    const splitSel = $('panelSplitSelect');
+
+    for (const [key, id] of Object.entries(DOCK_PANE_MAP)) {
+      const el = $(id);
+      if (!el) continue;
+      if (key === secondary && secondaryHost) {
+        if (el.parentElement !== secondaryHost) secondaryHost.append(el);
+        el.hidden = false;
+      } else {
+        if (primaryCol && el.parentElement !== primaryCol) primaryCol.append(el);
+        el.hidden = key !== primary;
+      }
+    }
+
+    if (secondaryCol) secondaryCol.hidden = !secondary;
+    $('btnPanelSplit')?.classList.toggle('active', Boolean(secondary));
+
+    if (splitSel && secondary) {
+      const isEs = getLang() === 'es';
+      const labels = {
+        console: isEs ? 'Consola R (integrada)' : 'R Console (integrated)',
+        arf: isEs ? 'arf (terminal interactiva)' : 'arf (interactive PTY)',
+        plots: isEs ? 'Gráficas' : 'Plots',
+        problems: isEs ? 'Problemas' : 'Problems',
+        help: isEs ? 'Ayuda R' : 'R Help'
+      };
+      splitSel.textContent = '';
+      for (const key of Object.keys(DOCK_PANE_MAP)) {
+        if (key === primary) continue;
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = labels[key] || key;
+        if (key === secondary) opt.selected = true;
+        splitSel.append(opt);
+      }
+    }
+
+    for (const btn of document.querySelectorAll('.panel-tab')) {
+      const dk = btn.dataset.dock;
+      btn.classList.toggle('active', dk === primary || dk === secondary);
+    }
+
+    // Clarify Console vs arf tooltips
+    const isEs = getLang() === 'es';
+    const conTab = document.querySelector('.panel-tab[data-dock="console"]');
+    const arfTab = document.querySelector('.panel-tab[data-dock="arf"]');
+    if (conTab) {
+      conTab.title = isEs
+        ? 'Consola R integrada: captura gráficas SVG, tablas View(), entorno y diálogos de R Commander automáticamente.'
+        : 'Integrated R Console: auto-captures SVG plots, View() tables, Workspace snapshot, and R Commander dialogs.';
+    }
+    if (arfTab) {
+      arfTab.title = isEs
+        ? 'Terminal interactiva arf (PTY): REPL avanzado de R con autocompletado y edición multilínea (puedes abrirla junto a Gráficas usando Dividir).'
+        : 'Interactive arf terminal (PTY): enhanced R REPL with tab completion and multiline editing (split with Plots to view both side by side).';
+    }
+  }
+
+  function setSplitPanelTab(tabKey) {
+    if (!tabKey || !DOCK_PANE_MAP[tabKey]) {
+      splitPanelTab = null;
+      localStorage.removeItem('rcs-split-panel-tab');
+    } else {
+      splitPanelTab = tabKey === state.activePanelTab ? (tabKey === 'plots' ? 'arf' : 'plots') : tabKey;
+      localStorage.setItem('rcs-split-panel-tab', splitPanelTab);
+      if (splitPanelTab === 'arf') ensureArfStarted();
+    }
+    renderDockPanes();
+  }
+
   function openPanelTab(which) {
+    if (splitPanelTab && which === splitPanelTab) {
+      state.layout.setPanelOpen(true);
+      applyWorkbenchLayout();
+      renderDockPanes();
+      if (which === 'arf') ensureArfStarted();
+      return;
+    }
     state.activePanelTab = which;
+    if (splitPanelTab === which) {
+      splitPanelTab = which === 'plots' ? 'console' : 'plots';
+      localStorage.setItem('rcs-split-panel-tab', splitPanelTab);
+    }
     state.layout.setPanelOpen(true);
     applyWorkbenchLayout();
-    for (const btn of document.querySelectorAll('.panel-tab')) {
-      btn.classList.toggle('active', btn.dataset.dock === which);
-    }
-    $('dockConsole').hidden = which !== 'console';
-    $('dockArf').hidden = which !== 'arf';
-    $('dockPlots').hidden = which !== 'plots';
-    $('dockProblems').hidden = which !== 'problems';
-    $('dockHelp').hidden = which !== 'help';
+    renderDockPanes();
     if (which === 'arf') ensureArfStarted();
   }
+
+  // --- Universal Floating Context Menu (Explorer, Console, arf, Tabs, Plots) ---
+  function hideContextMenu() {
+    const m = $('studioContextMenu');
+    if (m) m.hidden = true;
+  }
+
+  function showContextMenu(x, y, items) {
+    const menu = $('studioContextMenu');
+    if (!menu || !Array.isArray(items) || !items.length) return;
+    menu.textContent = '';
+    for (const item of items) {
+      if (item.sep) {
+        const sep = document.createElement('div');
+        sep.className = 'menubar-sep';
+        menu.append(sep);
+        continue;
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'output-action-btn';
+      if (item.disabled) btn.disabled = true;
+      btn.innerHTML = `${item.icon ? `<span class="ico">${svg(item.icon, { size: 13 })}</span>` : ''}<span></span>`;
+      btn.querySelector('span:last-child').textContent = item.label;
+      btn.addEventListener('click', async () => {
+        hideContextMenu();
+        await item.action?.();
+      });
+      menu.append(btn);
+    }
+    menu.hidden = false;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(6, Math.min(x, vw - rect.width - 8))}px`;
+    menu.style.top = `${Math.max(6, Math.min(y, vh - rect.height - 8))}px`;
+  }
+
+  document.addEventListener('click', (e) => {
+    const m = $('studioContextMenu');
+    if (m && !m.hidden && !m.contains(e.target)) hideContextMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideContextMenu();
+  });
 
   // --- File Actions ---
   async function openFileAction() {
@@ -3093,7 +3379,12 @@ boxplot(Sepal.Length ~ Species, data = iris,
         const startW = targetEl.getBoundingClientRect().width;
         const onMove = (ev) => {
           const delta = invert ? startX - ev.clientX : ev.clientX - startX;
-          targetEl.style.width = `${Math.max(190, Math.min(520, startW + delta))}px`;
+          const nextW = Math.max(185, Math.min(540, startW + delta));
+          targetEl.style.width = `${nextW}px`;
+          targetEl.style.setProperty('--sb-width', `${nextW}px`);
+          for (const child of targetEl.querySelectorAll(':scope > .dockable-sidebar, :scope > .dock-panel')) {
+            child.style.width = '100%';
+          }
           state.editors.forEach((ed) => ed?.layout());
         };
         const onUp = () => {
@@ -3857,7 +4148,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
   });
   $('btnKnit').addEventListener('click', () => handleStudioCommand('knit'));
   $('btnDocsCursor').addEventListener('click', openDocsForCursor);
-  $('btnSplit').addEventListener('click', () => handleStudioCommand('toggle-split'));
+  $('btnSplit')?.addEventListener('click', () => handleStudioCommand('toggle-split'));
   $('btnToggleExplorer').addEventListener('click', () => handleStudioCommand('toggle-explorer-sidebar'));
   $('btnToggleRcmdr').addEventListener('click', () => handleStudioCommand('toggle-rcmdr-sidebar'));
   $('btnTogglePanel').addEventListener('click', () => handleStudioCommand('toggle-panel'));
@@ -3926,6 +4217,203 @@ boxplot(Sepal.Length ~ Species, data = iris,
   $('actGuide')?.addEventListener('click', (e) => openGuideModal(Boolean(e.shiftKey)));
   $('actTheme').addEventListener('click', () => handleStudioCommand('toggle-theme'));
   $('actSettings').addEventListener('click', () => settingsModal.open());
+  $('btnTopSettings')?.addEventListener('click', () => settingsModal.open());
+  $('btnWrap0')?.addEventListener('click', () => {
+    state.settings.editorWordWrap = state.settings.editorWordWrap === false;
+    saveSettings(state.settings);
+    applySettingsUI();
+  });
+
+  // Ctrl + Scrollwheel zooms editor font size; Ctrl + Shift + Scrollwheel zooms entire UI
+  window.addEventListener(
+    'wheel',
+    (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      const step = e.deltaY < 0 ? 1 : -1;
+      applyZoomStep(e.shiftKey ? 'ui' : 'editor', step);
+    },
+    { passive: false, capture: true }
+  );
+
+  // Split Bottom Dock controls
+  $('btnPanelSplit')?.addEventListener('click', () => {
+    if (splitPanelTab) {
+      setSplitPanelTab(null);
+    } else {
+      const companion = state.activePanelTab === 'plots' ? 'arf' : 'plots';
+      setSplitPanelTab(companion);
+    }
+  });
+  $('panelSplitSelect')?.addEventListener('change', (e) => {
+    setSplitPanelTab(e.target.value);
+  });
+  $('btnPanelSplitClose')?.addEventListener('click', () => {
+    setSplitPanelTab(null);
+  });
+
+  // Quick bottom-bar toggles: max.print entries, skip ?, fixed notation
+  $('panelMaxPrintInput')?.addEventListener('change', (e) => {
+    const val = Math.max(1, Math.min(1000000, parseInt(e.target.value, 10) || 24));
+    state.settings.maxOutputItems = val;
+    saveSettings(state.settings);
+    applySettingsUI();
+  });
+  $('btnPanelSkipHelp')?.addEventListener('click', () => {
+    state.settings.skipHelp = !state.settings.skipHelp;
+    saveSettings(state.settings);
+    applySettingsUI();
+  });
+  $('btnPanelFixedNotation')?.addEventListener('click', () => {
+    state.settings.fixedNotation = !state.settings.fixedNotation;
+    saveSettings(state.settings);
+    applySettingsUI();
+  });
+
+  // Right-click context menus: File Explorer background, Console, arf, Plots, Editor Tabs
+  $('folderTree')?.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.fs-row')) return;
+    e.preventDefault();
+    const isEs = getLang() === 'es';
+    showContextMenu(e.clientX, e.clientY, [
+      {
+        icon: 'new-file',
+        label: isEs ? 'Nuevo archivo...' : 'New File...',
+        action: async () => {
+          if (!state.workspaceRoot) return openFolderAction();
+          const name = window.prompt(t('newFilePrompt'), 'script.R');
+          if (!name || !name.trim()) return;
+          const res = await window.studio.createFile({ dir: state.workspaceRoot, name: name.trim(), content: '' });
+          if (res?.ok && res.filePath) await openPathSmart(res.filePath);
+          await refreshFolderTree();
+        }
+      },
+      {
+        icon: 'new-folder',
+        label: isEs ? 'Nueva carpeta...' : 'New Folder...',
+        action: async () => {
+          if (!state.workspaceRoot) return openFolderAction();
+          const name = window.prompt(t('newFolderPrompt'), 'data');
+          if (!name || !name.trim()) return;
+          await window.studio.createDir({ dir: state.workspaceRoot, name: name.trim() });
+          await refreshFolderTree();
+        }
+      },
+      { sep: true },
+      { icon: 'file', label: isEs ? 'Abrir archivo...' : 'Open File...', action: () => openFileAction() },
+      { icon: 'folder-open', label: isEs ? 'Abrir carpeta...' : 'Open Folder...', action: () => openFolderAction() },
+      { icon: 'refresh', label: isEs ? 'Actualizar árbol' : 'Refresh Tree', action: () => refreshFolderTree() }
+    ]);
+  });
+
+  const bindTerminalContextMenu = (outEl, inputEl, isArf) => {
+    const handler = (e) => {
+      e.preventDefault();
+      const isEs = getLang() === 'es';
+      const sel = window.getSelection()?.toString() || '';
+      const hasSel = Boolean(sel.trim());
+      showContextMenu(e.clientX, e.clientY, [
+        {
+          icon: 'copy',
+          label: hasSel ? (isEs ? 'Copiar selección' : 'Copy Selection') : isEs ? 'Copiar todo' : 'Copy All',
+          action: async () => {
+            await navigator.clipboard.writeText(hasSel ? sel : outEl.innerText || '');
+            showToast(t('outCopiedToast'));
+          }
+        },
+        {
+          icon: 'paste-doc',
+          label: isEs ? 'Pegar en línea de entrada' : 'Paste into Input',
+          action: async () => {
+            const clip = await navigator.clipboard.readText().catch(() => '');
+            if (clip && inputEl) {
+              inputEl.value = `${inputEl.value}${clip}`;
+              inputEl.focus();
+            }
+          }
+        },
+        ...(hasSel
+          ? [
+              {
+                icon: 'edit',
+                label: isEs ? 'Insertar selección en editor' : 'Insert Selection in Editor',
+                action: () => {
+                  const ed = state.editors[state.focusedGroup];
+                  if (ed) insertTextAtCursor(ed, sel);
+                }
+              }
+            ]
+          : []),
+        { sep: true },
+        {
+          icon: 'clear',
+          label: isEs ? 'Limpiar consola' : 'Clear Console',
+          action: () => {
+            outEl.textContent = '';
+          }
+        },
+        {
+          icon: 'restart',
+          label: isArf ? (isEs ? 'Reiniciar arf' : 'Restart arf') : isEs ? 'Reiniciar sesión R' : 'Restart R Session',
+          action: () => (isArf ? window.studio.arfRestart() : handleStudioCommand('restart-r'))
+        }
+      ]);
+    };
+    outEl?.addEventListener('contextmenu', handler);
+    inputEl?.addEventListener('contextmenu', handler);
+  };
+  bindTerminalContextMenu($('consoleOut'), $('consoleInput'), false);
+  bindTerminalContextMenu($('arfOut'), $('arfInput'), true);
+
+  $('plotsCanvas')?.addEventListener('contextmenu', (e) => {
+    if (!state.plots.length) return;
+    e.preventDefault();
+    const isEs = getLang() === 'es';
+    showContextMenu(e.clientX, e.clientY, [
+      { icon: 'copy', label: isEs ? 'Copiar gráfica (PNG)' : 'Copy Plot (PNG)', action: () => $('btnPlotCopyPng')?.click() },
+      { icon: 'download', label: isEs ? 'Guardar como SVG...' : 'Save as SVG...', action: () => $('btnPlotSaveSvg')?.click() },
+      { icon: 'download', label: isEs ? 'Exportar PNG (2x)...' : 'Export PNG (2x)...', action: () => $('btnPlotSavePng')?.click() },
+      { icon: 'download', label: isEs ? 'Exportar PDF...' : 'Export PDF...', action: () => $('btnPlotSavePdf')?.click() },
+      { sep: true },
+      { icon: 'new-window', label: isEs ? 'Abrir en ventana nueva' : 'Open in New Window', action: () => $('btnPlotPopout')?.click() },
+      { icon: 'clear', label: isEs ? 'Limpiar gráficas' : 'Clear Plots', action: () => $('btnPlotClear')?.click() }
+    ]);
+  });
+
+  for (const barId of ['tabBar0', 'tabBar1']) {
+    $(barId)?.addEventListener('contextmenu', (e) => {
+      const itemEl = e.target.closest('.tab-item');
+      if (!itemEl) return;
+      e.preventDefault();
+      const idx = Array.from(itemEl.parentElement.children).indexOf(itemEl);
+      const groupIdx = barId === 'tabBar1' ? 1 : 0;
+      const groupTabs = state.tabs.filter((x) => x.groupIndex === groupIdx);
+      const tab = groupTabs[idx];
+      if (!tab) return;
+      const isEs = getLang() === 'es';
+      showContextMenu(e.clientX, e.clientY, [
+        { icon: 'close', label: isEs ? 'Cerrar pestaña' : 'Close Tab', action: () => closeTab(tab.id) },
+        {
+          icon: 'close',
+          label: isEs ? 'Cerrar otras pestañas' : 'Close Other Tabs',
+          action: () => {
+            for (const other of groupTabs) {
+              if (other.id !== tab.id) closeTab(other.id);
+            }
+          }
+        },
+        { sep: true },
+        { icon: 'save', label: isEs ? 'Guardar como...' : 'Save As...', action: () => { activateTab(tab.id); saveFileAction(true); } },
+        ...(tab.filePath
+          ? [{ icon: 'copy', label: isEs ? 'Copiar ruta' : 'Copy Path', action: () => navigator.clipboard.writeText(tab.filePath) }]
+          : []),
+        { icon: 'new-window', label: isEs ? 'Abrir en ventana nueva' : 'Open in New Window', action: () => popoutTabWindow(tab) }
+      ]);
+    });
+  }
+
+  renderDockPanes();
 
   // Sidebar header dock/close actions
   $('btnFlipExplorer').addEventListener('click', () => {

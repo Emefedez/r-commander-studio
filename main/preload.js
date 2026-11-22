@@ -98,6 +98,8 @@ contextBridge.exposeInMainWorld('studio', {
   t3Start: () => ipcRenderer.invoke('t3:start'),
   t3Install: (payload) => ipcRenderer.invoke('t3:install', payload),
   t3Ask: (payload) => ipcRenderer.invoke('t3:ask', payload),
+  t3Models: () => ipcRenderer.invoke('t3:models'),
+  t3Transcribe: (payload) => ipcRenderer.invoke('t3:transcribe', payload),
   onT3InstallProgress: (cb) => subscribe('t3:installProgress', cb),
 
   // Events

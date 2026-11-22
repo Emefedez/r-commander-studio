@@ -317,6 +317,31 @@ header.titlebar {
   border-color: var(--focus-border);
   color: var(--fg);
 }
+.top-pill-btn {
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border-field);
+  border-radius: 3px;
+  background: var(--bg-sidebar);
+  color: var(--fg-soft);
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.top-pill-btn:hover {
+  background: var(--bg-editor);
+  border-color: var(--focus-border);
+  color: var(--fg);
+}
+.top-pill-btn.active {
+  border-color: var(--accent-purple);
+  color: var(--accent-cyan);
+  background: rgba(189, 147, 249, 0.14);
+}
 
 /* Cascading VS Code Menu Bar (overflow: visible so dropdowns & cascading submenus never clip) */
 .menubar {
@@ -443,7 +468,10 @@ header.titlebar {
   align-items: center;
   padding: 2px 0;
   flex-shrink: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+.activitybar::-webkit-scrollbar { display: none; }
 
 .act-btn {
   width: 40px;
@@ -521,8 +549,8 @@ header.titlebar {
 .dockable-sidebar {
   width: var(--sb-width, 268px);
   min-width: 185px;
-  max-width: 480px;
-  flex: 0 0 auto;
+  max-width: 540px;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -1426,7 +1454,47 @@ header.titlebar {
 .dock-panel.orient-horizontal .panel-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+}
+.panel-max-input {
+  width: 52px;
+  height: 20px;
+  padding: 0 4px;
+  background: var(--bg-editor);
+  border: 1px solid var(--border-field);
+  border-radius: 2px;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
+}
+.panel-max-input:focus {
+  outline: none;
+  border-color: var(--accent-purple);
+}
+.panel-max-input:disabled {
+  opacity: 0.4;
+}
+.panel-mini-toggle {
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--border-field);
+  border-radius: 2px;
+  background: var(--bg-editor);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.panel-mini-toggle:hover {
+  color: var(--fg);
+  border-color: var(--focus-border);
+}
+.panel-mini-toggle.active {
+  color: var(--accent-cyan);
+  border-color: var(--accent-purple);
+  background: rgba(189, 147, 249, 0.14);
 }
 
 /* Vertical tab mode (default for left/right dock, or toggled manually!) */
@@ -1495,6 +1563,46 @@ header.titlebar {
 }
 
 .panel-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+.panel-primary-col,
+.panel-secondary-col {
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-secondary-col {
+  border-left: 1px solid var(--border-field);
+}
+.panel-split-bar {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 6px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.panel-split-select {
+  height: 20px;
+  padding: 0 6px;
+  background: var(--bg-editor);
+  border: 1px solid var(--border-field);
+  border-radius: 2px;
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+.panel-secondary-host {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -2493,28 +2601,149 @@ footer.statusbar {
   font-size: 11px;
 }
 .t3-chat-foot {
+  position: relative;
   padding: 8px;
   background: var(--bg-chrome);
   border-top: 1px solid var(--border);
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
 }
-.t3-chat-foot textarea {
-  flex: 1;
-  min-height: 44px;
-  max-height: 110px;
-  padding: 5px 8px;
+.t3-composer-box {
+  display: flex;
+  flex-direction: column;
   background: var(--bg-editor);
   border: 1px solid var(--border-field);
-  border-radius: 2px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.t3-composer-box:focus-within {
+  border-color: var(--accent-purple);
+}
+.t3-attachments-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 5px 6px 2px;
+}
+.t3-attachments-bar:empty { display: none; }
+.t3-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--bg-activity);
+  border: 1px solid var(--border-field);
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  max-width: 100%;
+}
+.t3-att-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 170px;
+}
+.t3-att-rm {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.t3-att-rm:hover { color: var(--accent-red); }
+.t3-chat-foot textarea {
+  width: 100%;
+  min-height: 46px;
+  max-height: 120px;
+  padding: 7px 9px 4px;
+  background: transparent;
+  border: 0;
   color: var(--fg);
   font-size: 12.5px;
   resize: vertical;
 }
 .t3-chat-foot textarea:focus {
   outline: none;
+}
+.t3-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 7px 6px;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.12);
+}
+.t3-composer-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.t3-tool-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 3px;
+}
+.t3-mic-btn.recording {
+  color: var(--accent-red);
+  background: rgba(255, 85, 85, 0.16);
+  box-shadow: 0 0 0 1px var(--accent-red);
+}
+.t3-model-select {
+  height: 24px;
+  max-width: 175px;
+  min-width: 90px;
+  padding: 0 6px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-field);
+  border-radius: 3px;
+  color: var(--fg-soft);
+  font-size: 11px;
+  cursor: pointer;
+}
+.t3-model-select:focus {
+  outline: none;
   border-color: var(--accent-purple);
+}
+.t3-send-btn {
+  height: 26px;
+  padding: 0 11px;
+  gap: 6px;
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+.t3-attach-menu {
+  position: absolute;
+  left: 8px;
+  bottom: calc(100% + 4px);
+  min-width: 240px;
+  background: var(--bg-menu);
+  border: 1px solid var(--border-field);
+  border-radius: 3px;
+  box-shadow: var(--shadow-pop);
+  padding: 4px 0;
+  z-index: 120;
+}
+.studio-context-menu {
+  min-width: 200px;
+}
+.fs-rename-input {
+  flex: 1;
+  min-width: 60px;
+  height: 20px;
+  padding: 0 5px;
+  background: var(--bg-editor);
+  border: 1px solid var(--accent-purple);
+  border-radius: 2px;
+  color: var(--fg);
+  font-size: 12px;
 }
 
 .t3-status-bar.needs-action {
@@ -2539,6 +2768,7 @@ footer.statusbar {
   flex-wrap: wrap;
   gap: 8px;
 }
+/* Interactive User Guide Modal */
 .guide-modal {
   width: min(860px, calc(100vw - 24px));
 }
@@ -2578,4 +2808,182 @@ footer.statusbar {
   background: var(--bg-chrome);
   border: 1px solid var(--border-field);
   color: var(--accent-purple);
+}
+
+/* ============================================================================
+   11. RESPONSIVE ADAPTATION FOR SMALL / TILED WINDOWS (Hyprland Split-Screen)
+   ============================================================================ */
+@media (max-width: 1240px) {
+  .titlebar-center {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .top-search-box {
+    width: 26px;
+    max-width: 26px;
+    padding: 0;
+    justify-content: center;
+  }
+  .top-search-text {
+    display: none;
+  }
+  .menubar-trigger {
+    padding: 0 4px;
+    font-size: 11.5px;
+  }
+  .dockable-sidebar {
+    width: min(var(--sb-width, 240px), 28vw);
+    min-width: 170px;
+  }
+}
+
+@media (max-width: 1080px) {
+  header.titlebar {
+    height: auto;
+    min-height: 34px;
+    flex-wrap: wrap;
+    row-gap: 3px;
+    column-gap: 6px;
+    padding: 3px 6px;
+  }
+  .titlebar-left {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .titlebar-center {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+  .titlebar-right {
+    flex: 0 0 auto;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 980px) {
+  header.titlebar {
+    padding: 3px 4px;
+    gap: 3px;
+  }
+  .menubar {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .menubar-trigger {
+    padding: 0 3px;
+    font-size: 11px;
+    height: 22px;
+  }
+  .top-icon-btn {
+    width: 22px;
+    height: 22px;
+  }
+  .tb-sep {
+    margin: 0 1px;
+  }
+  .center-stack {
+    min-width: 180px;
+  }
+  .dockable-sidebar {
+    width: min(var(--sb-width, 220px), 34vw);
+    min-width: 155px;
+  }
+  .side-dock.stack-sidebars {
+    width: min(var(--sb-width, 230px), 36vw);
+  }
+  .dock-panel.orient-horizontal > .panel-header {
+    padding: 0 4px;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .dock-panel.orient-horizontal > .panel-header::-webkit-scrollbar {
+    display: none;
+  }
+  .dock-panel.orient-horizontal .panel-tab {
+    padding: 0 6px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  #statusRcmdrCtx,
+  #statusRPlay {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .activitybar {
+    width: 32px;
+    min-width: 32px;
+  }
+  .act-btn {
+    width: 32px;
+    height: 34px;
+  }
+  /* In narrow tiled windows, open sidebars float as overlay drawers so the editor is never crushed */
+  .side-dock.dock-left:not([hidden]),
+  .side-dock.dock-right:not([hidden]) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 48;
+    max-width: min(280px, calc(100vw - 40px));
+    box-shadow: var(--shadow-pop);
+  }
+  .side-dock.dock-left:not([hidden]) {
+    left: 32px;
+  }
+  .side-dock.dock-right:not([hidden]) {
+    right: 0;
+  }
+  .side-dock > .dockable-sidebar {
+    width: min(260px, calc(100vw - 44px));
+    max-width: calc(100vw - 44px);
+  }
+  #leftDockGrip,
+  #rightDockGrip {
+    display: none !important;
+  }
+  .preview-pane {
+    width: 52%;
+    min-width: 160px;
+  }
+  .rcmdr-field {
+    min-width: 100%;
+    flex: 1 1 100%;
+  }
+  .settings-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .theme-token-grid {
+    grid-template-columns: 1fr;
+  }
+  .t3-chat-window {
+    left: 36px;
+    right: 6px;
+    width: auto;
+  }
+  #statusLsp,
+  #statusBridge {
+    display: none;
+  }
+}
+
+@media (max-height: 640px) {
+  .bottom-dock-slot {
+    height: min(175px, 42vh);
+    min-height: 90px;
+    max-height: 52vh;
+  }
+  .rcmdr-field select[multiple],
+  .rcmdr-field select[size]:not([size="1"]) {
+    height: 8.5em;
+  }
+  .rcmdr-modal[data-command-id="installPackages"] .rcmdr-field select[multiple],
+  .rcmdr-modal[data-command-id="updatePackages"] .rcmdr-field select[multiple] {
+    height: min(28vh, 10em);
+  }
 }

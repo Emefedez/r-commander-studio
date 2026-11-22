@@ -21,6 +21,12 @@
       this.openStandaloneWindow = openStandaloneWindow;
 
       this.messages = [];
+      this.attachments = [];
+      this.selectedModel = localStorage.getItem('rcs-t3-model') || 'auto';
+      this.recording = false;
+      this._speechRec = null;
+      this._mediaRecorder = null;
+      this._audioChunks = [];
       this.status = null;
       this.busy = false;
       this.windowOpen = false;
@@ -28,6 +34,7 @@
 
       this._initDom();
       this.refreshStatus();
+      this.refreshModels();
     }
 
     _t(key, fallback) {
@@ -53,6 +60,11 @@
       this.installBtn = document.getElementById('btnT3Install');
       this.startBtn = document.getElementById('btnT3Start');
       this.contextBarEl = document.getElementById('t3ContextBar');
+      this.attachmentsBarEl = document.getElementById('t3AttachmentsBar');
+      this.attachBtn = document.getElementById('btnT3Attach');
+      this.attachMenuEl = document.getElementById('t3AttachMenu');
+      this.micBtn = document.getElementById('btnT3Mic');
+      this.modelSelectEl = document.getElementById('t3ModelSelect');
 
       // Inline Ctrl+I bar (#t3InlineBar)
       this.inlineBarEl = document.getElementById('t3InlineBar');
@@ -78,6 +90,26 @@
       if (this.startBtn) {
         this.startBtn.addEventListener('click', () => this.startT3Backend());
       }
+      if (this.attachBtn) {
+        this.attachBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._toggleAttachMenu();
+        });
+      }
+      if (this.micBtn) {
+        this.micBtn.addEventListener('click', () => this._toggleMic());
+      }
+      if (this.modelSelectEl) {
+        this.modelSelectEl.addEventListener('change', () => {
+          this.selectedModel = this.modelSelectEl.value || 'auto';
+          localStorage.setItem('rcs-t3-model', this.selectedModel);
+        });
+      }
+      document.addEventListener('click', (e) => {
+        if (this.attachMenuEl && !this.attachMenuEl.hidden && !this.attachMenuEl.contains(e.target) && e.target !== this.attachBtn) {
+          this.attachMenuEl.hidden = true;
+        }
+      });
 
       document.getElementById('btnT3Close')?.addEventListener('click', () => this.toggleWindow(false));
       document.getElementById('btnT3Clear')?.addEventListener('click', () => {
@@ -134,6 +166,260 @@
       } catch {
         // ignore
       }
+    }
+
+    async refreshModels() {
+      if (!this.modelSelectEl) return;
+      const fallback = [
+        { id: 'auto', label: 'T3 Code (Auto)' },
+        { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+        { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+        { id: 'gpt-5.4', label: 'GPT-5.4 / Codex' },
+        { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro' },
+        { id: 'r-expert', label: 'Built-in R Expert (Offline)' }
+      ];
+      let models = fallback;
+      try {
+        const res = await window.studio?.t3Models?.();
+        if (res?.ok && Array.isArray(res.models) && res.models.length) models = res.models;
+      } catch {
+        // use fallback
+      }
+      this.modelSelectEl.textContent = '';
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.label;
+        if (m.id === this.selectedModel) opt.selected = true;
+        this.modelSelectEl.append(opt);
+      }
+      if (!models.some((m) => m.id === this.selectedModel) && models.length) {
+        this.selectedModel = models[0].id;
+        this.modelSelectEl.value = this.selectedModel;
+      }
+    }
+
+    addAttachment({ name, kind = 'file', content = '', language = 'r' } = {}) {
+      if (!content || !String(content).trim()) return;
+      const cleanName = name || (kind === 'snippet' ? 'snippet.R' : 'file.R');
+      const existingIdx = this.attachments.findIndex((a) => a.name === cleanName && a.kind === kind);
+      if (existingIdx >= 0) this.attachments[existingIdx] = { name: cleanName, kind, content: String(content), language };
+      else this.attachments.push({ name: cleanName, kind, content: String(content), language });
+      this._renderAttachments();
+    }
+
+    _renderAttachments() {
+      if (!this.attachmentsBarEl) return;
+      const { svg } = window.StudioIcons;
+      this.attachmentsBarEl.textContent = '';
+      this.attachments.forEach((att, idx) => {
+        const chip = document.createElement('span');
+        chip.className = 't3-attachment-chip';
+        const lines = att.content.split(/\r?\n/).length;
+        const ico = document.createElement('span');
+        ico.className = 'ico';
+        ico.innerHTML = svg(att.kind === 'snippet' ? 'edit' : 'file', { size: 11 });
+        const lbl = document.createElement('span');
+        lbl.className = 't3-att-name';
+        lbl.textContent = `${att.name} (${lines} ln)`;
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 't3-att-rm';
+        rm.innerHTML = svg('close', { size: 10 });
+        rm.addEventListener('click', () => {
+          this.attachments.splice(idx, 1);
+          this._renderAttachments();
+        });
+        chip.append(ico, lbl, rm);
+        this.attachmentsBarEl.append(chip);
+      });
+    }
+
+    _toggleAttachMenu() {
+      if (!this.attachMenuEl) return;
+      if (!this.attachMenuEl.hidden) {
+        this.attachMenuEl.hidden = true;
+        return;
+      }
+      const { svg } = window.StudioIcons;
+      const isEs = this._isEs();
+      this.attachMenuEl.textContent = '';
+
+      const addItem = (icon, label, fn) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'output-action-btn';
+        btn.innerHTML = `<span class="ico">${svg(icon, { size: 13 })}</span><span></span>`;
+        btn.querySelector('span:last-child').textContent = label;
+        btn.addEventListener('click', async () => {
+          this.attachMenuEl.hidden = true;
+          await fn();
+        });
+        this.attachMenuEl.append(btn);
+      };
+
+      addItem('edit', isEs ? 'Adjuntar selección actual del editor' : 'Attach selected code snippet', () => {
+        const sel = this.getSelectedCode?.() || '';
+        const tab = this.getActiveTab?.();
+        if (!sel.trim()) {
+          this.showToast?.(isEs ? 'Selecciona primero unas líneas en el editor.' : 'Select some code in the editor first.');
+          return;
+        }
+        this.addAttachment({
+          name: `${tab?.name || 'editor'} (sel)`,
+          kind: 'snippet',
+          content: sel,
+          language: tab?.language || 'r'
+        });
+      });
+
+      addItem('file', isEs ? 'Adjuntar archivo activo del editor' : 'Attach active editor file', () => {
+        const tab = this.getActiveTab?.();
+        const code = tab?.model?.getValue?.() || '';
+        if (!code.trim()) {
+          this.showToast?.(isEs ? 'El editor activo está vacío.' : 'Active editor is empty.');
+          return;
+        }
+        this.addAttachment({
+          name: tab.name || 'script.R',
+          kind: 'file',
+          content: code,
+          language: tab.language || 'r'
+        });
+      });
+
+      addItem('folder-open', isEs ? 'Elegir archivo desde disco...' : 'Choose file from disk...', async () => {
+        const st = this.getState?.() || {};
+        const files = await window.studio?.openFile?.({ defaultDir: st.workspaceRoot || undefined });
+        if (!Array.isArray(files) || !files.length) return;
+        for (const f of files) {
+          if (f.content) {
+            this.addAttachment({
+              name: f.name,
+              kind: 'file',
+              content: f.content,
+              language: /\.rmd$/i.test(f.name) ? 'rmd' : 'r'
+            });
+          }
+        }
+      });
+
+      this.attachMenuEl.hidden = false;
+    }
+
+    async _toggleMic() {
+      const isEs = this._isEs();
+      if (this.recording) {
+        this._stopMic();
+        return;
+      }
+
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRec) {
+        try {
+          const rec = new SpeechRec();
+          rec.lang = isEs ? 'es-ES' : 'en-US';
+          rec.interimResults = false;
+          rec.continuous = false;
+          this._speechRec = rec;
+          this.recording = true;
+          this.micBtn?.classList.add('recording');
+          this.showToast?.(isEs ? 'Escuchando... habla tu consulta.' : 'Listening... speak your prompt.');
+
+          rec.onresult = (ev) => {
+            const transcript = Array.from(ev.results || [])
+              .map((r) => r[0]?.transcript || '')
+              .join(' ')
+              .trim();
+            if (transcript && this.inputEl) {
+              this.inputEl.value = this.inputEl.value ? `${this.inputEl.value} ${transcript}` : transcript;
+              this.inputEl.focus();
+            }
+          };
+          rec.onerror = async () => {
+            this._stopMic();
+            await this._startMediaRecorderFallback();
+          };
+          rec.onend = () => {
+            this.recording = false;
+            this.micBtn?.classList.remove('recording');
+            this._speechRec = null;
+          };
+          rec.start();
+          return;
+        } catch {
+          this._stopMic();
+        }
+      }
+      await this._startMediaRecorderFallback();
+    }
+
+    async _startMediaRecorderFallback() {
+      const isEs = this._isEs();
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        this.showToast?.(isEs ? 'Micrófono no disponible en este entorno.' : 'Microphone is not available in this environment.', 'error');
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this._audioChunks = [];
+        const recorder = new MediaRecorder(stream);
+        this._mediaRecorder = recorder;
+        this.recording = true;
+        this.micBtn?.classList.add('recording');
+        this.showToast?.(isEs ? 'Grabando audio... pulsa el micrófono otra vez para transcribir.' : 'Recording audio... click mic again to transcribe.');
+
+        recorder.ondataavailable = (ev) => {
+          if (ev.data && ev.data.size > 0) this._audioChunks.push(ev.data);
+        };
+        recorder.onstop = async () => {
+          stream.getTracks().forEach((tr) => tr.stop());
+          this.recording = false;
+          this.micBtn?.classList.remove('recording');
+          const blob = new Blob(this._audioChunks, { type: recorder.mimeType || 'audio/webm' });
+          this._audioChunks = [];
+          const buf = new Uint8Array(await blob.arrayBuffer());
+          let bin = '';
+          for (const b of buf) bin += String.fromCharCode(b);
+          const res = await window.studio?.t3Transcribe?.({
+            base64Audio: btoa(bin),
+            mimeType: blob.type || 'audio/webm',
+            lang: isEs ? 'es' : 'en'
+          });
+          if (res?.ok && res.text && this.inputEl) {
+            this.inputEl.value = this.inputEl.value ? `${this.inputEl.value} ${res.text}` : res.text;
+            this.inputEl.focus();
+          } else if (res?.error) {
+            this.showToast?.(res.error, 'error');
+          }
+        };
+        recorder.start();
+      } catch (err) {
+        this.recording = false;
+        this.micBtn?.classList.remove('recording');
+        this.showToast?.(err.message || 'Microphone access denied', 'error');
+      }
+    }
+
+    _stopMic() {
+      if (this._speechRec) {
+        try {
+          this._speechRec.stop();
+        } catch {
+          // ignore
+        }
+        this._speechRec = null;
+      }
+      if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
+        try {
+          this._mediaRecorder.stop();
+        } catch {
+          // ignore
+        }
+        this._mediaRecorder = null;
+      }
+      this.recording = false;
+      this.micBtn?.classList.remove('recording');
     }
 
     _renderStatusHeader() {
@@ -195,6 +481,7 @@
       if (this.windowOpen) {
         this.updateContextPills();
         this.refreshStatus();
+        this.refreshModels();
         this.inputEl?.focus();
       }
     }
@@ -243,6 +530,7 @@
       try {
         const res = await window.studio.t3Ask({
           mode: 'inline-fix',
+          model: this.selectedModel || 'auto',
           prompt,
           code: tab?.model?.getValue?.() || '',
           selection,
@@ -324,7 +612,12 @@
       const selection = this.getSelectedCode?.() || '';
       const st = this.getState?.() || {};
 
-      this.messages.push({ role: 'user', text: prompt });
+      const attachedSnapshot = this.attachments.slice();
+      this.attachments = [];
+      this._renderAttachments();
+
+      const attLabel = attachedSnapshot.length ? `\n\n[${attachedSnapshot.map((a) => a.name).join(', ')}]` : '';
+      this.messages.push({ role: 'user', text: `${prompt}${attLabel}` });
       this.renderMessages();
       this.busy = true;
       if (this.sendBtn) this.sendBtn.disabled = true;
@@ -332,9 +625,11 @@
       try {
         const res = await window.studio.t3Ask({
           mode: 'chat',
+          model: this.selectedModel || 'auto',
           prompt,
           code: tab?.model?.getValue?.() || '',
           selection,
+          attachments: attachedSnapshot,
           filePath: tab?.filePath || tab?.name || '',
           language: tab?.language || 'r',
           activeDataset: st.activeDataset || '',
@@ -373,6 +668,22 @@
         empty.innerHTML = isEs
           ? `<strong>T3 Code Copilot (Ctrl+Alt+B)</strong><p>Pregunta sobre R, R Markdown, modelos estadísticos o depura errores de la consola. Usa <code>Ctrl+I</code> en el editor para correcciones rápidas en línea.</p>`
           : `<strong>T3 Code Copilot (Ctrl+Alt+B)</strong><p>Ask about R, R Markdown, statistical models, or debug console errors. Press <code>Ctrl+I</code> inside the editor for inline code fixes.</p>`;
+        if (!this.status?.t3Running) {
+          const actions = document.createElement('div');
+          actions.className = 'prereq-actions';
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'dlg-btn primary';
+          if (this.status?.t3Installed) {
+            btn.textContent = isEs ? 'Iniciar T3 Code' : 'Start T3 Code';
+            btn.addEventListener('click', () => this.startT3Backend());
+          } else {
+            btn.textContent = isEs ? 'Instalar T3 Code' : 'Install T3 Code';
+            btn.addEventListener('click', () => this.installT3Code());
+          }
+          actions.append(btn);
+          empty.append(actions);
+        }
         this.msgListEl.append(empty);
         return;
       }

@@ -167,20 +167,6 @@
 
       this.body.innerHTML = `
         <div class="settings-section">
-          <h3>${lang === 'es' ? 'Temas y editor de colores' : 'Themes & Live Theme Editor'}</h3>
-          <label class="settings-row">
-            <span>${lang === 'es' ? 'Tema predefinido (8 opciones)' : 'Theme preset (8 built-in)'}</span>
-            <select id="set_themePreset">${presetOpts}</select>
-          </label>
-          <div id="themeTokenGrid" class="theme-token-grid"></div>
-          <div class="theme-editor-actions">
-            <button type="button" id="btnThemeResetPreset" class="dlg-btn">${lang === 'es' ? 'Restablecer tema' : 'Reset to Preset'}</button>
-            <button type="button" id="btnThemeExportJson" class="dlg-btn">${lang === 'es' ? 'Exportar JSON' : 'Export JSON'}</button>
-            <button type="button" id="btnThemeImportJson" class="dlg-btn">${lang === 'es' ? 'Importar JSON' : 'Import JSON'}</button>
-          </div>
-        </div>
-
-        <div class="settings-section">
           <h3>${t('settingsGeneral')}</h3>
           <label class="settings-row">
             <span>${t('settingsLanguage')}</span>
@@ -251,6 +237,20 @@
         </div>
 
         <div class="settings-section">
+          <h3>${lang === 'es' ? 'Temas y editor de colores' : 'Themes & Live Theme Editor'}</h3>
+          <label class="settings-row">
+            <span>${lang === 'es' ? 'Tema predefinido (8 opciones)' : 'Theme preset (8 built-in)'}</span>
+            <select id="set_themePreset">${presetOpts}</select>
+          </label>
+          <div id="themeTokenGrid" class="theme-token-grid"></div>
+          <div class="theme-editor-actions">
+            <button type="button" id="btnThemeResetPreset" class="dlg-btn">${lang === 'es' ? 'Restablecer tema' : 'Reset to Preset'}</button>
+            <button type="button" id="btnThemeExportJson" class="dlg-btn">${lang === 'es' ? 'Exportar JSON' : 'Export JSON'}</button>
+            <button type="button" id="btnThemeImportJson" class="dlg-btn">${lang === 'es' ? 'Importar JSON' : 'Import JSON'}</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <h3>${t('settingsPackages')}</h3>
           <label class="settings-check"><input type="checkbox" id="set_loadRcmdrFunctions"${s.loadRcmdrFunctions ? ' checked' : ''}> ${t('settingsLoadRcmdr')}</label>
           <label class="settings-row">
@@ -265,6 +265,14 @@
             <span>${t('settingsPackageDownloads')}</span>
             <input type="text" id="set_packageDownloads" value="${String(s.packageDownloads || '').replace(/"/g, '&quot;')}">
           </label>
+        </div>
+
+        <div class="settings-section">
+          <h3>T3 Code Copilot</h3>
+          <div class="settings-row">
+            <span id="set_t3StatusLabel">${lang === 'es' ? 'Servicio en segundo plano T3 Code (Linux / macOS / Windows + WSL2)' : 'T3 Code background service (Linux / macOS / Windows + WSL2)'}</span>
+            <button type="button" id="btnSettingsInstallT3" class="dlg-btn primary">${lang === 'es' ? 'Instalar / Iniciar T3 Code' : 'Install / Start T3 Code'}</button>
+          </div>
         </div>
       `;
 
@@ -306,6 +314,27 @@
           // ignore invalid JSON
         }
       });
+
+      const btnT3 = document.getElementById('btnSettingsInstallT3');
+      const lblT3 = document.getElementById('set_t3StatusLabel');
+      if (btnT3 && window.studio?.t3Install) {
+        btnT3.addEventListener('click', async () => {
+          btnT3.disabled = true;
+          if (lblT3) lblT3.textContent = lang === 'es' ? 'Instalando / iniciando T3 Code...' : 'Installing / starting T3 Code...';
+          try {
+            const res = await window.studio.t3Install({ preferWsl: true });
+            if (lblT3) {
+              lblT3.textContent = res?.ok
+                ? (lang === 'es' ? `T3 Code listo (${res.installedPath || res.url || '127.0.0.1:3773'})` : `T3 Code ready (${res.installedPath || res.url || '127.0.0.1:3773'})`)
+                : (res?.error || 'T3 Code install failed');
+            }
+          } catch (err) {
+            if (lblT3) lblT3.textContent = err.message || 'Error';
+          } finally {
+            btnT3.disabled = false;
+          }
+        });
+      }
     }
 
     _commit() {

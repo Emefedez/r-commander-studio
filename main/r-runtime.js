@@ -66,6 +66,19 @@ function findArf() {
   return findExecutable('arf', extra);
 }
 
+function isNonEmptyPlotSvg(svg) {
+  if (!svg || typeof svg !== 'string' || !svg.includes('<svg')) return false;
+  // Strip XML/DOCTYPE/comments, <defs>, <style>, and full-canvas background <rect> elements
+  // so empty svglite/cairo SVG files created when no plot was drawn are ignored.
+  const stripped = svg
+    .replace(/<\?[\s\S]*?\?>/g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<defs\b[^>]*>[\s\S]*?<\/defs>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<rect\b[^>]*(?:width\s*=\s*['"]100%['"][^>]*height\s*=\s*['"]100%['"]|height\s*=\s*['"]100%['"][^>]*width\s*=\s*['"]100%['"]|class\s*=\s*['"][^'"]*svglite[^'"]*['"])[^>]*\/?>(?:\s*<\/rect>)?/gi, '');
+  return /<(?:path|circle|ellipse|line|polyline|polygon|text|image|use|rect)\b/i.test(stripped);
+}
+
 function rawRString(text) {
   let dashes = '-';
   const str = String(text ?? '');
@@ -846,7 +859,7 @@ local({
           .sort();
         for (const f of files) {
           const svg = fs.readFileSync(path.join(plotDir, f), 'utf8');
-          if (svg && svg.includes('<svg')) plots.push(svg);
+          if (isNonEmptyPlotSvg(svg)) plots.push(svg);
         }
       }
       return {

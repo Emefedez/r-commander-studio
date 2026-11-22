@@ -25,20 +25,26 @@
     </div>
 
     <div class="titlebar-right">
-      <button type="button" id="btnTopCopilot" class="top-icon-btn" data-icon="sparkle" data-size="15" data-i18n-title="copilotToggle"></button>
-      <button type="button" id="btnTopLang" class="top-lang-btn" data-i18n-title="switchLanguage">ES</button>
       <button type="button" id="btnRun" class="top-icon-btn run-accent" data-icon="play" data-size="14" data-i18n-title="runSelection"></button>
       <button type="button" id="btnRunAll" class="top-icon-btn" data-icon="play-all" data-size="14" data-i18n-title="runAll"></button>
       <button type="button" id="btnInterrupt" class="top-icon-btn" data-icon="stop" data-size="13" data-i18n-title="interruptR"></button>
       <span class="tb-sep"></span>
-      <button type="button" id="btnPreview" class="top-icon-btn" data-icon="eye" data-size="15" data-i18n-title="togglePreview"></button>
-      <button type="button" id="btnKnit" class="top-icon-btn" data-icon="hammer" data-size="15" data-i18n-title="knitRmd"></button>
+      <button type="button" id="btnPreview" class="top-pill-btn" data-i18n-title="togglePreview">
+        <span class="ico" data-icon="markdown" data-size="14"></span>
+        <span>MD</span>
+      </button>
+      <button type="button" id="btnKnit" class="top-pill-btn" data-i18n-title="knitRmd">
+        <span class="ico" data-icon="hammer" data-size="13"></span>
+        <span>Knit</span>
+      </button>
       <button type="button" id="btnDocsCursor" class="top-icon-btn" data-icon="book" data-size="15" data-i18n-title="openDocsBtn"></button>
-      <button type="button" id="btnSplit" class="top-icon-btn" data-icon="split" data-size="15" data-i18n-title="splitEditor"></button>
       <span class="tb-sep"></span>
+      <button type="button" id="btnTopCopilot" class="top-icon-btn" data-icon="sparkle" data-size="15" data-i18n-title="copilotToggle"></button>
+      <button type="button" id="btnTopLang" class="top-lang-btn" data-i18n-title="switchLanguage">ES</button>
       <button type="button" id="btnToggleExplorer" class="top-icon-btn" data-icon="sidebar" data-size="15" data-i18n-title="toggleSidebar"></button>
       <button type="button" id="btnToggleRcmdr" class="top-icon-btn" data-icon="sidebar-right" data-size="15" data-i18n-title="toggleRcmdrSidebar"></button>
       <button type="button" id="btnTogglePanel" class="top-icon-btn" data-icon="panel-bottom" data-size="15" data-i18n-title="togglePanel"></button>
+      <button type="button" id="btnTopSettings" class="top-icon-btn" data-icon="settings" data-size="15" data-i18n-title="openSettings"></button>
     </div>
   </header>
 
@@ -52,7 +58,7 @@
       <button type="button" id="actHelp" class="act-btn" data-icon="book" data-size="19" data-i18n-title="dockHelp"></button>
       <button type="button" id="actCopilot" class="act-btn" data-icon="sparkle" data-size="19" data-i18n-title="copilotToggle"></button>
       <span class="spacer"></span>
-      <button type="button" id="actGuide" class="act-btn act-guide-btn" data-i18n-title="guideBtnTitle" aria-label="Guide"><span class="act-guide-circle">?</span></button>
+      <button type="button" id="actGuide" class="act-btn act-guide-btn" data-icon="question" data-size="19" data-i18n-title="guideBtnTitle" aria-label="Guide"></button>
       <button type="button" id="actTheme" class="act-btn" data-icon="moon" data-size="18" data-i18n-title="toggleTheme"></button>
       <button type="button" id="actSettings" class="act-btn" data-icon="settings" data-size="19" data-i18n-title="openSettings"></button>
     </nav>
@@ -137,6 +143,7 @@
               <div class="tab-actions">
                 <button type="button" id="btnAddTab0" class="icon-btn" data-icon="new-file" data-size="14" data-i18n-title="newRScript"></button>
                 <button type="button" id="btnSave0" class="icon-btn" data-icon="save" data-size="14" data-i18n-title="save"></button>
+                <button type="button" id="btnWrap0" class="icon-btn active" data-icon="word-wrap" data-size="14" data-i18n-title="toggleEditorWrapBtn"></button>
                 <button type="button" id="btnSplit0" class="icon-btn" data-icon="split" data-size="14" data-i18n-title="splitEditor"></button>
               </div>
             </div>
@@ -216,12 +223,16 @@
             </div>
             <div class="panel-actions">
               <button type="button" id="btnPanelLimitOutput" class="icon-btn active" data-icon="truncate" data-size="14" data-i18n-title="settingsLimitOutput"></button>
+              <input type="number" id="panelMaxPrintInput" class="panel-max-input" min="1" max="1000000" value="24" data-i18n-title="settingsMaxOutputItems" aria-label="Max print entries">
+              <button type="button" id="btnPanelSkipHelp" class="panel-mini-toggle active" data-i18n-title="settingsSkipHelp">skip ?</button>
+              <button type="button" id="btnPanelFixedNotation" class="panel-mini-toggle" data-i18n-title="settingsFixedNotation">0.00</button>
               <button type="button" id="btnPanelWordWrap" class="icon-btn active" data-icon="word-wrap" data-size="14" data-i18n-title="toggleWordWrap"></button>
               <button type="button" id="btnPanelHistory" class="icon-btn" data-icon="history" data-size="14" data-i18n-title="panelHistoryTitle"></button>
               <span class="tb-sep"></span>
               <button type="button" id="btnPanelInterrupt" class="icon-btn" data-icon="stop" data-size="13" data-i18n-title="interruptR"></button>
               <button type="button" id="btnPanelRestart" class="icon-btn" data-icon="restart" data-size="14" data-i18n-title="restartR"></button>
               <button type="button" id="btnPanelClear" class="icon-btn" data-icon="clear" data-size="14" data-i18n-title="clearConsole"></button>
+              <button type="button" id="btnPanelSplit" class="icon-btn" data-icon="split" data-size="14" data-i18n-title="splitPanelBtn"></button>
               <button type="button" id="btnPanelMaximize" class="icon-btn" data-icon="maximize" data-size="14" data-i18n-title="maximizePanel"></button>
               <button type="button" id="btnPanelOrient" class="icon-btn" data-icon="orient-v" data-size="14" data-i18n-title="togglePanelOrientation"></button>
               <button type="button" id="btnPanelDockCycle" class="icon-btn" data-icon="panel-right" data-size="14" data-i18n-title="toggleDockPosition"></button>
@@ -229,7 +240,8 @@
             </div>
           </div>
 
-          <div class="panel-body">
+          <div class="panel-body" id="panelBody">
+            <div class="panel-primary-col" id="panelPrimaryCol">
             <div class="dock-pane" id="dockConsole">
               <div class="console-out" id="consoleOut"></div>
               <div class="console-input-row">
@@ -289,6 +301,15 @@
                 <button type="button" id="btnHelpGo" class="icon-btn" data-icon="chevron-right" data-size="14" title="Search"></button>
               </div>
               <div class="help-content" id="helpContent"></div>
+            </div>
+            </div>
+            <div class="panel-secondary-col" id="panelSecondaryCol" hidden>
+              <div class="panel-split-bar">
+                <select id="panelSplitSelect" class="panel-split-select" aria-label="Secondary dock tab"></select>
+                <span class="spacer"></span>
+                <button type="button" id="btnPanelSplitClose" class="icon-btn" data-icon="close" data-size="13" data-i18n-title="closeSplitPanelBtn"></button>
+              </div>
+              <div class="panel-secondary-host" id="panelSecondaryHost"></div>
             </div>
           </div>
         </section>
@@ -418,8 +439,9 @@
     </div>
   </div>
 
-  <!-- Floating (...) Output Actions Menu & Document Picker Modal -->
+  <!-- Floating (...) Output Actions Menu, Context Menu & Document Picker Modal -->
   <div id="outputActionMenu" class="output-action-menu" hidden></div>
+  <div id="studioContextMenu" class="output-action-menu studio-context-menu" hidden></div>
 
   <div id="docPickerBackdrop" class="modal-backdrop palette-backdrop" hidden>
     <div class="palette-modal" role="dialog" aria-modal="true">
@@ -459,8 +481,22 @@
     </div>
     <div id="t3ChatMessages" class="t3-chat-messages"></div>
     <div class="t3-chat-foot">
-      <textarea id="t3ChatInput" rows="2" placeholder="Ask T3 Code Copilot or type /fix, /explain, /plot, /rmd..."></textarea>
-      <button type="button" id="btnT3Send" class="dlg-btn primary" data-icon="play" data-size="13"></button>
+      <div class="t3-composer-box">
+        <div id="t3AttachmentsBar" class="t3-attachments-bar"></div>
+        <textarea id="t3ChatInput" rows="2" placeholder="Ask T3 Code Copilot or type /fix, /explain, /plot, /rmd..."></textarea>
+        <div class="t3-composer-toolbar">
+          <div class="t3-composer-left">
+            <button type="button" id="btnT3Attach" class="icon-btn t3-tool-btn" data-icon="paperclip" data-size="14" data-i18n-title="copilotAttachBtn"></button>
+            <button type="button" id="btnT3Mic" class="icon-btn t3-tool-btn t3-mic-btn" data-icon="mic" data-size="14" data-i18n-title="copilotMicBtn"></button>
+            <select id="t3ModelSelect" class="t3-model-select" data-i18n-title="copilotModelTitle"></select>
+          </div>
+          <button type="button" id="btnT3Send" class="dlg-btn primary t3-send-btn">
+            <span class="ico" data-icon="send" data-size="13"></span>
+            <span data-i18n="copilotSendBtn">Enviar</span>
+          </button>
+        </div>
+      </div>
+      <div id="t3AttachMenu" class="t3-attach-menu" hidden></div>
     </div>
   </aside>
 

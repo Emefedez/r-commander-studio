@@ -401,7 +401,14 @@
     problemsShowWarnings: 'Warnings',
     problemsFilterHint: 'Click to show or hide errors and warnings in the editor and list',
     settingsShowProblemErrors: 'Diagnostics: underline & list syntax errors (red)',
-    settingsShowProblemWarnings: 'Diagnostics: underline & list R lint warnings (yellow)'
+    settingsShowProblemWarnings: 'Diagnostics: underline & list R lint warnings (yellow)',
+    splitPanelBtn: 'Split Bottom Dock (show two tabs side by side)',
+    closeSplitPanelBtn: 'Close Split Dock Pane',
+    copilotAttachBtn: 'Attach code snippet or file',
+    copilotMicBtn: 'Voice input (dictate prompt)',
+    copilotModelTitle: 'Choose AI model',
+    copilotSendBtn: 'Send',
+    toggleEditorWrapBtn: 'Toggle Editor Word Wrap (Alt+Z)'
   };
 
   const ES = {
@@ -798,7 +805,14 @@
     problemsShowWarnings: 'Avisos (Warnings)',
     problemsFilterHint: 'Pulsa para mostrar u ocultar errores y avisos en el editor y la lista',
     settingsShowProblemErrors: 'Diagnósticos: subrayar y listar errores de sintaxis (rojo)',
-    settingsShowProblemWarnings: 'Diagnósticos: subrayar y listar avisos de R (amarillo)'
+    settingsShowProblemWarnings: 'Diagnósticos: subrayar y listar avisos de R (amarillo)',
+    splitPanelBtn: 'Dividir panel inferior (mostrar dos pestañas a la vez)',
+    closeSplitPanelBtn: 'Cerrar panel dividido',
+    copilotAttachBtn: 'Adjuntar fragmento de código o archivo',
+    copilotMicBtn: 'Entrada de voz (dictar consulta)',
+    copilotModelTitle: 'Elegir modelo de IA',
+    copilotSendBtn: 'Enviar',
+    toggleEditorWrapBtn: 'Activar / desactivar ajuste de línea en editor (Alt+Z)'
   };
 
   return { en: EN, es: ES };

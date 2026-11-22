@@ -655,9 +655,103 @@ class T3CodeService {
   }
 
   /**
-   * Builds a rich R / R Markdown system & user prompt with active dataset, code selection, and console errors.
+   * Lists available models across T3 Code, LMDeck/Ollama, installed CLI agents, and built-in presets.
    */
-  _buildPrompt({ mode = 'chat', prompt = '', code = '', selection = '', filePath = '', language = 'r', activeDataset = '', rOutput = '', lang = 'es' }) {
+  async getModels() {
+    const models = [];
+    const seen = new Set();
+    const push = (id, label, provider) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      models.push({ id, label, provider });
+    };
+
+    push('auto', 'T3 Code (Auto)', 'auto');
+
+    // Probe T3 Code & LMDeck OpenAI-compatible /v1/models endpoints
+    const token = this.readConnectionToken();
+    for (const [url, provider] of [
+      [`${this.baseUrl}/v1/models`, 't3code'],
+      ['http://127.0.0.1:11434/v1/models', 'lmdeck']
+    ]) {
+      try {
+        const res = await httpGetJson(url, {
+          timeoutMs: 1200,
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        const list = Array.isArray(res?.data) ? res.data : Array.isArray(res?.models) ? res.models : [];
+        for (const m of list) {
+          const id = typeof m === 'string' ? m : m?.id || m?.name;
+          if (id) push(id, `${id} (${provider === 't3code' ? 'T3 Code' : 'Local'})`, provider);
+        }
+      } catch {
+        // endpoint offline
+      }
+    }
+
+    // Standard frontier & CLI presets
+    push('claude-sonnet-4-6', 'Claude Sonnet 4.6', 'anthropic');
+    push('claude-opus-4-6', 'Claude Opus 4.6', 'anthropic');
+    push('gpt-5.4', 'GPT-5.4 / Codex', 'openai');
+    push('gemini-3.1-pro', 'Gemini 3.1 Pro', 'google');
+    push('r-expert', 'Built-in R Expert (Offline)', 'local');
+
+    return { ok: true, models };
+  }
+
+  /**
+   * Transcribes recorded audio (webm/ogg/wav) via local offline speech tools (whisper-cli / whisper / voxtype) if available.
+   */
+  async transcribeAudio({ base64Audio = '', mimeType = 'audio/webm', lang = 'es' } = {}) {
+    if (!base64Audio) return { ok: false, error: 'Empty audio recording.' };
+    const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rcs-voice-'));
+    const ext = mimeType.includes('wav') ? '.wav' : mimeType.includes('ogg') ? '.ogg' : '.webm';
+    const rawFile = path.join(tmpDir, `input${ext}`);
+    const wavFile = path.join(tmpDir, 'input.wav');
+    try {
+      await fsp.writeFile(rawFile, Buffer.from(base64Audio, 'base64'));
+      const home = os.homedir();
+      const extra = [path.join(home, '.local', 'bin'), path.join(home, '.cargo', 'bin'), '/usr/local/bin', '/usr/bin'];
+      const ffmpeg = findExecutableOnPath(process.platform === 'win32' ? ['ffmpeg.exe'] : ['ffmpeg'], extra);
+      let audioInput = rawFile;
+      if (ffmpeg && ext !== '.wav') {
+        const conv = await execFileAsync(ffmpeg, ['-y', '-i', rawFile, '-ar', '16000', '-ac', '1', wavFile], { timeoutMs: 15000 });
+        if (conv.ok && fs.existsSync(wavFile)) audioInput = wavFile;
+      }
+
+      const whisperBin = findExecutableOnPath(
+        process.platform === 'win32' ? ['whisper.exe', 'whisper-cli.exe'] : ['whisper', 'whisper-cli'],
+        extra
+      );
+      if (whisperBin) {
+        const baseName = path.basename(whisperBin).toLowerCase();
+        const args = baseName.includes('whisper-cli')
+          ? ['-f', audioInput, '-l', lang === 'es' ? 'es' : 'en', '-nt']
+          : [audioInput, '--language', lang === 'es' ? 'es' : 'en', '--output_format', 'txt', '--output_dir', tmpDir];
+        const res = await execFileAsync(whisperBin, args, { timeoutMs: 45000 });
+        const txtPath = path.join(tmpDir, `${path.basename(audioInput, path.extname(audioInput))}.txt`);
+        const text = fs.existsSync(txtPath) ? (await fsp.readFile(txtPath, 'utf8')).trim() : res.stdout.trim();
+        if (text) return { ok: true, text };
+      }
+
+      return {
+        ok: false,
+        error:
+          lang === 'es'
+            ? 'No se detectó motor de voz local (whisper). Puedes dictar con Web Speech o instalar whisper.'
+            : 'No local speech engine (whisper) found. Use Web Speech dictation or install whisper.'
+      };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    } finally {
+      await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
+  /**
+   * Builds a rich R / R Markdown system & user prompt with active dataset, code selection, attachments, and console errors.
+   */
+  _buildPrompt({ mode = 'chat', prompt = '', code = '', selection = '', attachments = [], filePath = '', language = 'r', activeDataset = '', rOutput = '', lang = 'es' }) {
     const isEs = lang === 'es';
     const sys = isEs
       ? 'Eres T3 Code Copilot integrado en R Commander Studio (IDE de R y R Markdown). Responde de forma concisa y precisa. Cuando propongas código R o R Markdown, envuélvelo siempre en un bloque ```r ... ``` listo para ejecutar o aplicar.'
@@ -670,6 +764,14 @@ class T3CodeService {
       ctxParts.push(`Selected Code:\n\`\`\`${language}\n${selection.trim()}\n\`\`\``);
     } else if (code && code.trim()) {
       ctxParts.push(`Current Document Code:\n\`\`\`${language}\n${code.slice(0, 6000)}\n\`\`\``);
+    }
+    if (Array.isArray(attachments) && attachments.length) {
+      for (const att of attachments.slice(0, 8)) {
+        if (!att || !att.content) continue;
+        const label = att.name || 'snippet';
+        const attLang = att.language || 'r';
+        ctxParts.push(`Attached ${att.kind === 'snippet' ? 'Snippet' : 'File'} (${label}):\n\`\`\`${attLang}\n${String(att.content).slice(0, 6000)}\n\`\`\``);
+      }
     }
     if (rOutput && rOutput.trim()) {
       ctxParts.push(`Recent R Console Output / Errors:\n\`\`\`text\n${rOutput.slice(-2000).trim()}\n\`\`\``);
@@ -844,8 +946,12 @@ class T3CodeService {
    *  3. Built-in R / Rcmdr expert engine (instant offline fallback)
    */
   async askCopilot(opts = {}) {
+    if (opts.model === 'r-expert') {
+      return this._localRExpertFallback(opts);
+    }
     await this.startBackend().catch(() => {});
     const { system, fullPrompt } = this._buildPrompt(opts);
+    const chosenModel = opts.model && opts.model !== 'auto' ? opts.model : 'default';
 
     // 1. Try OpenAI-compatible HTTP endpoint on 127.0.0.1:11434 (lmdeck / local T3 proxy)
     for (const url of ['http://127.0.0.1:11434/v1/chat/completions', `${this.baseUrl}/v1/chat/completions`]) {
@@ -854,7 +960,7 @@ class T3CodeService {
         const res = await httpPostJson(
           url,
           {
-            model: opts.model || 'default',
+            model: chosenModel,
             messages: [
               { role: 'system', content: system },
               { role: 'user', content: fullPrompt }

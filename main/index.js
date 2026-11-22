@@ -245,8 +245,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1460,
     height: 920,
-    minWidth: 980,
-    minHeight: 640,
+    minWidth: 420,
+    minHeight: 340,
     title: 'R Commander Studio',
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#f7f8fa',
@@ -749,6 +749,14 @@ function registerIpc() {
   ipcMain.handle('t3:ask', async (_e, opts = {}) => {
     if (!t3code) t3code = new T3CodeService();
     return t3code.askCopilot(opts);
+  });
+  ipcMain.handle('t3:models', async () => {
+    if (!t3code) t3code = new T3CodeService();
+    return t3code.getModels();
+  });
+  ipcMain.handle('t3:transcribe', async (_e, opts = {}) => {
+    if (!t3code) t3code = new T3CodeService();
+    return t3code.transcribeAudio(opts);
   });
 
   ipcMain.handle('studio:openOutputWindow', async (_e, { title, htmlContent, rawText, code, sourceLabel, isLight } = {}) => {
