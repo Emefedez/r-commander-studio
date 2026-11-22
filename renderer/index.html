@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>R Commander Studio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Top Toolbar (NoteComplete Chrome) -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-icon" aria-hidden="true">R</span>
+      <span class="brand-title">R Commander Studio</span>
+    </div>
+
+    <span class="tool-sep"></span>
+
+    <button id="btnNewR" class="btn-filled" title="New R Script (Ctrl+N)">+ .R</button>
+    <button id="btnNewRmd" class="btn-filled" title="New R Markdown (Ctrl+Shift+N)">+ .Rmd</button>
+    <button id="btnOpen" title="Open File (Ctrl+O)">Open</button>
+    <button id="btnSave" title="Save (Ctrl+S)">Save</button>
+    <button id="btnSaveAs" title="Save As (Ctrl+Shift+S)">Save As</button>
+
+    <span class="tool-sep"></span>
+
+    <button id="btnRun" class="btn-run" title="Run Selection or Line (Ctrl+Enter)">▶ Run</button>
+    <button id="btnRunAll" class="btn-primary" title="Run Entire File (Ctrl+Shift+Enter)">▶▶ Run All</button>
+    <button id="btnInterrupt" class="btn-danger" title="Interrupt R Execution">■ Stop</button>
+    <button id="btnPreview" title="Toggle Markdown / Rmd Split Preview (Ctrl+Shift+V)">Preview</button>
+    <button id="btnKnit" title="Knit R Markdown with rmarkdown::render (Ctrl+Shift+K)">Knit</button>
+
+    <span class="spacer"></span>
+
+    <button id="badgeDataset" class="ctx-badge" title="Active Dataset (click to inspect Workspace)">
+      Data: <strong id="activeDatasetName">none</strong>
+    </button>
+    <button id="badgeModel" class="ctx-badge" title="Active Model">
+      Model: <strong id="activeModelName">none</strong>
+    </button>
+
+    <div class="pill-group" role="group" aria-label="R Commander Language">
+      <button id="langEn" class="active" data-lang="en">EN</button>
+      <button id="langEs" data-lang="es">ES</button>
+    </div>
+
+    <button id="btnTheme" class="btn-filled" title="Toggle Light / Dark Theme">Light</button>
+
+    <span id="bridgePill" class="bridge-pill" title="NoteComplete Local Bridge">
+      <span class="bridge-dot"></span>
+      <span id="bridgeText">Bridge</span>
+    </span>
+  </header>
+
+  <!-- Main Workbench -->
+  <div class="workbench">
+    <!-- Left Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-side="rcmdr">R Commander</button>
+        <button class="sidebar-tab" data-side="workspace">Workspace</button>
+      </div>
+
+      <!-- R Commander 371-Command Tree -->
+      <div class="sidebar-pane" id="paneRcmdr">
+        <div class="sidebar-search">
+          <input id="rcmdrSearch" type="text" placeholder="Search 371 R Commander dialogs..." autocomplete="off">
+        </div>
+        <div class="sidebar-scroll" id="rcmdrTree"></div>
+      </div>
+
+      <!-- Live Workspace Inspector -->
+      <div class="sidebar-pane" id="paneWorkspace" hidden>
+        <div class="sidebar-search">
+          <button id="btnRefreshWs" class="btn-filled" style="width:100%">↻ Refresh R Workspace</button>
+        </div>
+        <div class="sidebar-scroll" id="workspaceContent">
+          <div class="ws-empty">Run R code or load a dataset to inspect objects.</div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="v-grip" id="sidebarGrip" title="Drag to resize sidebar"></div>
+
+    <!-- Center Editor + Preview + Bottom Dock -->
+    <main class="center-col">
+      <div class="tab-bar" id="tabBar">
+        <button id="btnAddTab" class="tab-add" title="New R Script">+</button>
+      </div>
+
+      <div class="editor-stage">
+        <div id="editorHost" class="editor-host"></div>
+
+        <section id="previewPane" class="preview-pane" hidden>
+          <div class="preview-head">
+            <strong id="previewTitle">Live Preview</strong>
+            <span class="spacer"></span>
+            <button id="btnPreviewModeLive" class="btn-primary" style="min-height:22px;padding:1px 8px">Live</button>
+            <button id="btnPreviewModeKnit" style="min-height:22px;padding:1px 8px">Knit HTML</button>
+            <button id="btnClosePreview" class="btn-icon" style="min-height:22px">×</button>
+          </div>
+          <div id="previewBody" class="preview-body"></div>
+          <iframe id="previewIframe" class="preview-iframe" sandbox="allow-scripts" hidden></iframe>
+        </section>
+      </div>
+
+      <div class="h-grip" id="dockGrip" title="Drag to resize bottom panel"></div>
+
+      <!-- Bottom Dock -->
+      <section class="bottom-dock" id="bottomDock">
+        <div class="dock-bar">
+          <button class="dock-tab active" data-dock="console">Console</button>
+          <button class="dock-tab" data-dock="problems">
+            Problems <span class="badge-count" id="problemsCount">0</span>
+          </button>
+          <button class="dock-tab" data-dock="plots">
+            Plots <span class="badge-count" id="plotsCount">0</span>
+          </button>
+          <span class="spacer"></span>
+          <button id="btnClearConsole" style="min-height:22px;padding:1px 8px">Clear</button>
+          <button id="btnRestartR" style="min-height:22px;padding:1px 8px">Restart R</button>
+        </div>
+
+        <!-- Console Pane -->
+        <div class="dock-pane" id="dockConsole">
+          <div class="console-out" id="consoleOut"></div>
+          <div class="console-input-row">
+            <span class="console-prompt">&gt;</span>
+            <input id="consoleInput" type="text" placeholder="Run R expression (Enter)..." autocomplete="off">
+            <button id="btnConsoleSend" class="btn-primary" style="min-height:24px;padding:1px 10px">Eval</button>
+          </div>
+        </div>
+
+        <!-- Problems Pane -->
+        <div class="dock-pane" id="dockProblems" hidden>
+          <div class="problems-list" id="problemsList">
+            <div class="ws-empty">No problems detected in active document.</div>
+          </div>
+        </div>
+
+        <!-- Plots Pane -->
+        <div class="dock-pane" id="dockPlots" hidden>
+          <div class="plots-toolbar">
+            <button id="btnPlotPrev" class="btn-filled" style="min-height:24px">◀ Prev</button>
+            <span id="plotIndexLabel" class="muted">0 / 0</span>
+            <button id="btnPlotNext" class="btn-filled" style="min-height:24px">Next ▶</button>
+            <span class="tool-sep"></span>
+            <button id="btnPlotZoomOut" class="btn-filled" style="min-height:24px">−</button>
+            <button id="btnPlotZoomReset" class="btn-filled" style="min-height:24px">100%</button>
+            <button id="btnPlotZoomIn" class="btn-filled" style="min-height:24px">+</button>
+            <span class="spacer"></span>
+            <button id="btnPlotSave" class="btn-primary" style="min-height:24px">Save SVG</button>
+            <button id="btnPlotClear" class="btn-danger" style="min-height:24px">Clear</button>
+          </div>
+          <div class="plots-canvas" id="plotsCanvas">
+            <div class="ws-empty">Plots generated by R (base graphics or ggplot2) appear here automatically.</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Compact Status Bar -->
+  <footer class="statusbar">
+    <span class="status-item" id="statusR">R: probing...</span>
+    <span class="status-item" id="statusLsp">LSP: starting...</span>
+    <span class="status-item" id="statusArf"></span>
+    <span class="spacer"></span>
+    <span class="status-item" id="statusCursor">Ln 1, Col 1</span>
+    <span class="status-item" id="statusLang">R</span>
+    <span class="status-item">UTF-8</span>
+  </footer>
+
+  <!-- Dynamic R Commander Dialog Modal -->
+  <div id="rcmdrModalBackdrop" class="modal-backdrop" hidden>
+    <div class="rcmdr-modal" role="dialog" aria-modal="true" aria-labelledby="rcmdrModalTitle">
+      <div class="rcmdr-modal-head">
+        <div>
+          <h2 id="rcmdrModalTitle" class="rcmdr-modal-title">R Commander</h2>
+          <div id="rcmdrModalSub" class="rcmdr-modal-sub"></div>
+        </div>
+        <button id="rcmdrModalClose" class="btn-icon" title="Close (Esc)">×</button>
+      </div>
+      <div class="rcmdr-modal-body">
+        <div id="rcmdrDsRow" class="rcmdr-ds-row" hidden></div>
+        <div id="rcmdrFields" class="rcmdr-fields"></div>
+      </div>
+      <div class="rcmdr-modal-foot">
+        <span id="rcmdrModalStatus" class="rcmdr-modal-status"></span>
+        <button id="rcmdrBtnReset" class="btn-filled">Reset</button>
+        <button id="rcmdrBtnCancel" class="btn-filled">Cancel</button>
+        <button id="rcmdrBtnInsert" class="btn-primary">Insert in Script</button>
+        <button id="rcmdrBtnRun" class="btn-run">▶ Run</button>
+        <button id="rcmdrBtnBoth" class="btn-solid-primary">▶ Run &amp; Insert</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script src="monaco-setup.js"></script>
+  <script src="markdown-preview.js"></script>
+  <script src="dialog-modal.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
