@@ -1074,7 +1074,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     arfTerm = new window.Terminal({
       cursorBlink: true,
       fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Consolas, monospace',
-      fontSize: 12.5,
+      fontSize: Math.max(9, Math.min(24, Number(localStorage.getItem('rcs-arf-font-size')) || 12.5)),
       lineHeight: 1.35,
       scrollback: 5000,
       theme: {
@@ -3223,7 +3223,19 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
 
     if (secondaryCol) secondaryCol.hidden = !secondary;
+    if ($('panelSplitGrip')) $('panelSplitGrip').hidden = !secondary;
+    if (primaryCol && secondaryCol) {
+      if (secondary) {
+        const ratio = Math.max(0.2, Math.min(0.8, Number(localStorage.getItem('rcs-panel-split-ratio')) || 0.5));
+        primaryCol.style.flex = `0 0 ${(ratio * 100).toFixed(2)}%`;
+        secondaryCol.style.flex = '1 1 auto';
+      } else {
+        primaryCol.style.flex = '1 1 100%';
+        secondaryCol.style.flex = '';
+      }
+    }
     $('btnPanelSplit')?.classList.toggle('active', Boolean(secondary));
+    requestAnimationFrame(() => fitArfXterm());
 
     if (splitSel && secondary) {
       const isEs = getLang() === 'es';
@@ -3773,10 +3785,11 @@ boxplot(Sepal.Length ~ Species, data = iris,
       const startY = e.clientY;
       const startH = bSlot.getBoundingClientRect().height;
       const onMove = (ev) => {
-        const h = Math.max(110, Math.min(window.innerHeight * 0.68, startH - (ev.clientY - startY)));
+        const h = Math.max(90, Math.min(window.innerHeight * 0.85, startH - (ev.clientY - startY)));
         bSlot.style.height = `${h}px`;
         state.layout.panel.size = Math.round(h);
         state.editors.forEach((ed) => ed?.layout());
+        fitArfXterm();
       };
       const onUp = () => {
         bGrip.classList.remove('dragging');
@@ -4618,7 +4631,11 @@ boxplot(Sepal.Length ~ Species, data = iris,
     applySettingsUI();
   });
 
-  // Ctrl + Scrollwheel zooms editor font size; Ctrl + Shift + Scrollwheel zooms entire UI
+  // Independent Ctrl + Scrollwheel zoom per pane (Console, arf, Plots, Editor) + Ctrl + Shift + Scrollwheel for full UI
+  let consoleFontSize = Math.max(9, Math.min(24, Number(localStorage.getItem('rcs-console-font-size')) || 12.5));
+  let arfFontSize = Math.max(9, Math.min(24, Number(localStorage.getItem('rcs-arf-font-size')) || 12.5));
+  if ($('consoleOut')) $('consoleOut').style.fontSize = `${consoleFontSize}px`;
+
   window.addEventListener(
     'wheel',
     (e) => {
@@ -4626,10 +4643,64 @@ boxplot(Sepal.Length ~ Species, data = iris,
       if (e.deltaY === 0) return;
       e.preventDefault();
       const step = e.deltaY < 0 ? 1 : -1;
-      applyZoomStep(e.shiftKey ? 'ui' : 'editor', step);
+      if (e.shiftKey) {
+        applyZoomStep('ui', step);
+        return;
+      }
+      const target = e.target;
+      if (target?.closest?.('#dockPlots')) {
+        state.plotZoom = Math.max(0.25, Math.min(4, Number((state.plotZoom + step * 0.12).toFixed(2))));
+        renderPlotPane();
+        return;
+      }
+      if (target?.closest?.('#dockConsole')) {
+        consoleFontSize = Math.max(9, Math.min(24, Number((consoleFontSize + step * 0.8).toFixed(1))));
+        localStorage.setItem('rcs-console-font-size', String(consoleFontSize));
+        if ($('consoleOut')) $('consoleOut').style.fontSize = `${consoleFontSize}px`;
+        return;
+      }
+      if (target?.closest?.('#dockArf')) {
+        arfFontSize = Math.max(9, Math.min(24, Number((arfFontSize + step * 0.8).toFixed(1))));
+        localStorage.setItem('rcs-arf-font-size', String(arfFontSize));
+        if (arfTerm) {
+          arfTerm.options.fontSize = arfFontSize;
+          fitArfXterm();
+        }
+        return;
+      }
+      applyZoomStep('editor', step);
     },
     { passive: false, capture: true }
   );
+
+  // Draggable vertical splitter between left and right Bottom Dock panes (e.g. arf vs Plots)
+  const panelSplitGrip = $('panelSplitGrip');
+  if (panelSplitGrip) {
+    panelSplitGrip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      panelSplitGrip.classList.add('dragging');
+      const body = $('panelBody');
+      const pCol = $('panelPrimaryCol');
+      const sCol = $('panelSecondaryCol');
+      if (!body || !pCol || !sCol) return;
+      const bodyRect = body.getBoundingClientRect();
+      const onMove = (ev) => {
+        const rel = (ev.clientX - bodyRect.left) / Math.max(1, bodyRect.width);
+        const ratio = Math.max(0.18, Math.min(0.82, rel));
+        pCol.style.flex = `0 0 ${(ratio * 100).toFixed(2)}%`;
+        sCol.style.flex = '1 1 auto';
+        localStorage.setItem('rcs-panel-split-ratio', ratio.toFixed(4));
+        fitArfXterm();
+      };
+      const onUp = () => {
+        panelSplitGrip.classList.remove('dragging');
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+  }
 
   // Split Bottom Dock controls & Drag-and-Drop tabs between sides (Editor Tabs & Dock Tabs)
   let draggingEditorTabId = null;

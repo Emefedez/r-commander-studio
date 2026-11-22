@@ -1575,17 +1575,21 @@ header.titlebar {
   flex-direction: row;
   overflow: hidden;
 }
-.panel-primary-col,
-.panel-secondary-col {
+.panel-primary-col {
   flex: 1 1 50%;
-  min-width: 0;
+  min-width: 140px;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .panel-secondary-col {
-  border-left: 1px solid var(--border-field);
+  flex: 1 1 50%;
+  min-width: 140px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .panel-split-bar {
   height: 26px;
