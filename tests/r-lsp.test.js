@@ -76,6 +76,11 @@ test('checkRSyntax: valid R returns 0 diagnostics and broken R returns exact lin
   assert.equal(broken.diagnostics[0].startLineNumber, 2);
   assert.ok(broken.diagnostics[0].startColumn >= 8, `expected col >= 8, got ${broken.diagnostics[0].startColumn}`);
   assert.match(broken.diagnostics[0].message, /unexpected/i);
+
+  const warned = await checkRSyntax('flag <- T\nif (x == NA) for (i in 1:length(x)) print(i)\n');
+  assert.equal(warned.ok, true);
+  assert.ok(warned.diagnostics.length >= 3);
+  assert.ok(warned.diagnostics.every((d) => d.severity === 'warning'));
 });
 
 test('checkRSyntax on .Rmd maps R chunk syntax error to exact .Rmd line number', async () => {

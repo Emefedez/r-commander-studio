@@ -79,6 +79,7 @@
             { sep: true },
             { label: t('save'), accel: 'Ctrl+S', cmd: 'save' },
             { label: t('saveAs'), accel: 'Ctrl+Shift+S', cmd: 'save-as' },
+            { label: t('menuAutoSave'), cmd: 'toggle-autosave' },
             { sep: true },
             ...rcmdrSub('File')
           ]
@@ -100,11 +101,21 @@
         { label: t('menuModels'), items: rcmdrSub('Models') },
         { label: t('menuDistributions'), items: rcmdrSub('Distributions') },
         { label: t('menuBasicStats'), items: rcmdrSub('Basic Statistics') },
-        { label: t('menuTools'), items: rcmdrSub('Tools') },
+        {
+          label: t('menuTools'),
+          items: [
+            ...rcmdrSub('Tools'),
+            { sep: true },
+            { label: t('copilotToggle'), accel: 'Ctrl+Alt+B', cmd: 'toggle-copilot' },
+            { label: t('copilotInlineFix'), accel: 'Ctrl+I', cmd: 'inline-copilot' },
+            { label: t('copilotInstallBtn'), cmd: 'install-t3code' }
+          ]
+        },
         {
           label: t('menuView'),
           items: [
             { label: t('commandPalette'), accel: 'Ctrl+Shift+P', cmd: 'command-palette' },
+            { label: t('copilotToggle'), accel: 'Ctrl+Alt+B', cmd: 'toggle-copilot' },
             { sep: true },
             { label: t('splitEditor'), accel: 'Ctrl+\\', cmd: 'toggle-split' },
             { label: t('moveTabOtherGroup'), cmd: 'move-tab-group' },
@@ -141,6 +152,7 @@
         {
           label: t('menuHelp'),
           items: [
+            { label: t('guideBtnTitle'), cmd: 'open-guide' },
             { label: t('rHelpMenu'), accel: 'F1', cmd: 'r-help' },
             { sep: true },
             ...rcmdrSub('Help'),
@@ -179,6 +191,18 @@
           btn.innerHTML = `<span class="menubar-entry-label"></span><span class="menubar-arrow">${svg('chevron-right', { size: 12 })}</span>`;
           btn.querySelector('.menubar-entry-label').textContent = item.label;
           const subPanel = this._buildMenuList(item.children, true);
+          subWrap.addEventListener('mouseenter', () => {
+            subPanel.classList.remove('flip-left');
+            subPanel.style.top = '-4px';
+            const r = subPanel.getBoundingClientRect();
+            if (r.right > window.innerWidth - 8) {
+              subPanel.classList.add('flip-left');
+            }
+            if (r.bottom > window.innerHeight - 8) {
+              const shiftUp = Math.min(r.top - 8, r.bottom - (window.innerHeight - 8));
+              subPanel.style.top = `${-4 - Math.max(0, shiftUp)}px`;
+            }
+          });
           subWrap.append(btn, subPanel);
           panel.append(subWrap);
         } else {

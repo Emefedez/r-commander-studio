@@ -295,9 +295,18 @@ for (i in seq_along(pkgs)) {
     const runnerPath = this.runnerPath;
 
     const harness = `
-options(device = function(...) {
-  grDevices::pdf(NULL)
-})
+options(
+  device = function(...) {
+    grDevices::pdf(NULL)
+  },
+  browser = function(url) {
+    u <- as.character(url)[1L]
+    cat("\\n__RCS_BROWSE__", u, "__RCS_BROWSE_END__\\n", sep = "")
+    cat("Opening in browser: ", u, "\\n", sep = "")
+    flush.console()
+    invisible(u)
+  }
+)
 if (file.exists(${JSON.stringify(runnerPath)})) {
   if ("R Play" %in% search()) detach("R Play", character.only = TRUE)
   e <- attach(NULL, name = "R Play")
@@ -540,9 +549,18 @@ repeat {
 `;
     fs.writeFileSync(harnessPath, harness, 'utf8');
 
+    const defaultBrowser =
+      process.env.R_BROWSER ||
+      process.env.BROWSER ||
+      (process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open');
     const proc = spawn(bin, ['--vanilla', harnessPath], {
       cwd: this.cwd,
-      env: { ...process.env, LC_ALL: 'C.UTF-8', R_DEFAULT_PACKAGES: 'datasets,utils,grDevices,graphics,stats,methods' },
+      env: {
+        ...process.env,
+        LC_ALL: 'C.UTF-8',
+        R_BROWSER: defaultBrowser,
+        R_DEFAULT_PACKAGES: 'datasets,utils,grDevices,graphics,stats,methods'
+      },
       stdio: ['pipe', 'pipe', 'pipe']
     });
     this._proc = proc;
@@ -592,15 +610,21 @@ repeat {
   }
 
   _extractViewEvents(text) {
-    return text.replace(/\r?\n?__RCS_VIEW__([\s\S]*?)__RCS_VIEW_END__\r?\n?/g, (_match, jsonStr) => {
-      try {
-        const payload = JSON.parse(jsonStr);
-        this.emit('viewTable', payload);
-      } catch {
-        // ignore malformed view payload
-      }
-      return '';
-    });
+    return text
+      .replace(/\r?\n?__RCS_VIEW__([\s\S]*?)__RCS_VIEW_END__\r?\n?/g, (_match, jsonStr) => {
+        try {
+          const payload = JSON.parse(jsonStr);
+          this.emit('viewTable', payload);
+        } catch {
+          // ignore malformed view payload
+        }
+        return '';
+      })
+      .replace(/\r?\n?__RCS_BROWSE__([^\r\n]*?)__RCS_BROWSE_END__\r?\n?/g, (_match, urlStr) => {
+        const cleanUrl = String(urlStr || '').trim();
+        if (cleanUrl) this.emit('browseUrl', cleanUrl);
+        return '';
+      });
   }
 
   _handleStdout(text) {
@@ -632,6 +656,11 @@ repeat {
       if (viewStart !== -1 && safeLen > viewStart) {
         const viewEnd = this._stdoutBuf.indexOf('__RCS_VIEW_END__', viewStart);
         safeLen = viewEnd !== -1 ? viewEnd + '__RCS_VIEW_END__'.length : viewStart;
+      }
+      // Only flush up to the last complete line (\n) so streaming chunks never split words or ANSI codes mid-line.
+      if (safeLen > 0) {
+        const lastNl = this._stdoutBuf.lastIndexOf('\n', safeLen - 1);
+        safeLen = lastNl >= 0 ? lastNl + 1 : 0;
       }
       if (safeLen > 0) {
         const emitChunk = this._extractViewEvents(this._stdoutBuf.slice(0, safeLen));

@@ -7,6 +7,10 @@
     closeMenusAfterChoice: false,
     hoverPeekSidebars: true,
     editorWordWrap: true,
+    autoSave: 'afterDelay',
+    autoSaveDelayMs: 1500,
+    showProblemErrors: true,
+    showProblemWarnings: true,
     limitOutput: true,
     maxOutputItems: 24,
     fixedNotation: false,
@@ -200,7 +204,22 @@
               <option value="steps"${s.dialogStyle === 'steps' ? ' selected' : ''}>${t('settingsDialogStyleSteps')}</option>
             </select>
           </label>
+          <label class="settings-row">
+            <span>${t('settingsAutoSave')}</span>
+            <select id="set_autoSave">
+              <option value="afterDelay"${s.autoSave === 'afterDelay' ? ' selected' : ''}>${t('settingsAutoSaveAfterDelay')}</option>
+              <option value="onFocusChange"${s.autoSave === 'onFocusChange' ? ' selected' : ''}>${t('settingsAutoSaveOnFocusChange')}</option>
+              <option value="onRun"${s.autoSave === 'onRun' ? ' selected' : ''}>${t('settingsAutoSaveOnRun')}</option>
+              <option value="off"${s.autoSave === 'off' ? ' selected' : ''}>${t('settingsAutoSaveOff')}</option>
+            </select>
+          </label>
+          <label class="settings-row">
+            <span>${t('settingsAutoSaveDelayMs')}</span>
+            <input type="number" id="set_autoSaveDelayMs" min="300" max="60000" step="100" value="${Number(s.autoSaveDelayMs) || 1500}">
+          </label>
           <label class="settings-check"><input type="checkbox" id="set_editorWordWrap"${s.editorWordWrap !== false ? ' checked' : ''}> ${t('settingsEditorWordWrap')}</label>
+          <label class="settings-check"><input type="checkbox" id="set_showProblemErrors"${s.showProblemErrors !== false ? ' checked' : ''}> ${t('settingsShowProblemErrors')}</label>
+          <label class="settings-check"><input type="checkbox" id="set_showProblemWarnings"${s.showProblemWarnings !== false ? ' checked' : ''}> ${t('settingsShowProblemWarnings')}</label>
           <label class="settings-check"><input type="checkbox" id="set_hoverPeekSidebars"${s.hoverPeekSidebars !== false ? ' checked' : ''}> ${t('settingsHoverPeek')}</label>
           <label class="settings-check"><input type="checkbox" id="set_closeMenusAfterChoice"${s.closeMenusAfterChoice ? ' checked' : ''}> ${t('settingsCloseMenus')}</label>
         </div>
@@ -298,7 +317,11 @@
         ...cur,
         menuAction: document.getElementById('set_menuAction').value,
         dialogStyle: document.getElementById('set_dialogStyle').value,
+        autoSave: document.getElementById('set_autoSave').value,
+        autoSaveDelayMs: Math.max(300, Math.min(60000, parseInt(document.getElementById('set_autoSaveDelayMs').value, 10) || 1500)),
         editorWordWrap: document.getElementById('set_editorWordWrap').checked,
+        showProblemErrors: document.getElementById('set_showProblemErrors').checked,
+        showProblemWarnings: document.getElementById('set_showProblemWarnings').checked,
         hoverPeekSidebars: document.getElementById('set_hoverPeekSidebars').checked,
         closeMenusAfterChoice: document.getElementById('set_closeMenusAfterChoice').checked,
         limitOutput: document.getElementById('set_limitOutput').checked,

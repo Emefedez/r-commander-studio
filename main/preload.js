@@ -1,6 +1,6 @@
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 function subscribe(channel, callback) {
   const listener = (_event, data) => callback(data);
@@ -12,9 +12,15 @@ contextBridge.exposeInMainWorld('studio', {
   getInitInfo: () => ipcRenderer.invoke('studio:init'),
   setLanguage: (lang) => ipcRenderer.invoke('studio:setLanguage', lang),
   updateSettings: (patch) => ipcRenderer.invoke('studio:updateSettings', patch),
+  setUiZoom: (factor) => {
+    const f = Math.max(0.65, Math.min(1.75, Number(factor) || 1));
+    webFrame.setZoomFactor(f);
+    return f;
+  },
+  getUiZoom: () => webFrame.getZoomFactor(),
 
   // File & Workspace Explorer I/O
-  openFile: () => ipcRenderer.invoke('file:open'),
+  openFile: (payload) => ipcRenderer.invoke('file:open', payload),
   openPath: (filePath) => ipcRenderer.invoke('file:openPath', filePath),
   openDataFileDialog: () => ipcRenderer.invoke('file:openDataFileDialog'),
   saveFile: (payload) => ipcRenderer.invoke('file:save', payload),
@@ -86,6 +92,13 @@ contextBridge.exposeInMainWorld('studio', {
   updaterSetCheckOnOpen: (on) => ipcRenderer.invoke('updater:setCheckOnOpen', on),
   installDesktop: () => ipcRenderer.invoke('studio:installDesktop'),
   openOutputWindow: (payload) => ipcRenderer.invoke('studio:openOutputWindow', payload),
+
+  // T3 Code Background Copilot & Cross-Platform Installer
+  t3Status: () => ipcRenderer.invoke('t3:status'),
+  t3Start: () => ipcRenderer.invoke('t3:start'),
+  t3Install: (payload) => ipcRenderer.invoke('t3:install', payload),
+  t3Ask: (payload) => ipcRenderer.invoke('t3:ask', payload),
+  onT3InstallProgress: (cb) => subscribe('t3:installProgress', cb),
 
   // Events
   onROutput: (cb) => subscribe('r:output', cb),

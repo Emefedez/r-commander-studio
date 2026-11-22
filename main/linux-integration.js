@@ -74,8 +74,13 @@ async function writeIfChanged(file, content) {
   return true;
 }
 
+function isStudioAppImage(appImage) {
+  if (!appImage || !path.isAbsolute(appImage) || !fs.existsSync(appImage)) return false;
+  return /r[-_\s]*commander[-_\s]*studio/i.test(path.basename(appImage));
+}
+
 async function ensureLocalLauncher({ appImage = process.env.APPIMAGE, appRoot = path.join(__dirname, '..'), home = os.homedir() } = {}) {
-  if (appImage && path.isAbsolute(appImage) && fs.existsSync(appImage)) {
+  if (isStudioAppImage(appImage)) {
     return appImage;
   }
   const binDir = path.join(home, '.local', 'bin');
@@ -84,6 +89,7 @@ async function ensureLocalLauncher({ appImage = process.env.APPIMAGE, appRoot = 
 
   const launcher = `#!/usr/bin/env bash
 set -euo pipefail
+unset APPIMAGE APPDIR ARGV0 OWD ELECTRON_RUN_AS_NODE
 APP_ROOT="${appRoot}"
 if [ -x "$HOME/.local/share/r-commander-studio/r-commander-studio" ]; then
   exec "$HOME/.local/share/r-commander-studio/r-commander-studio" "$@"

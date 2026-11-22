@@ -226,7 +226,7 @@ test('Auto-updater parses versions, picks platform assets, and verifies SHA256SU
   assert.equal(sums.get('R Commander Studio-0.2.0-linux-arm64.AppImage'), 'a'.repeat(64));
 });
 
-test('Linux desktop integration builds valid .desktop entry and MIME XML', () => {
+test('Linux desktop integration builds valid .desktop entry and MIME XML', async () => {
   const linuxInt = require('../main/linux-integration');
   const entry = linuxInt.buildDesktopEntry({ execPath: '/home/user/.local/bin/r-commander-studio' });
   assert.match(entry, /Name=R Commander Studio/);
@@ -234,4 +234,34 @@ test('Linux desktop integration builds valid .desktop entry and MIME XML', () =>
   const xml = linuxInt.buildMimeXml();
   assert.match(xml, /glob pattern="\*\.Rmd"/);
   assert.match(xml, /glob pattern="\*\.RData"/);
+});
+
+test('ArfTerminal sanitizePtyOutput strips DEC save/restore cursor escapes (\\x1b7 and \\x1b8) and DSR queries', () => {
+  const { sanitizePtyOutput } = require('../main/arf-terminal');
+  const raw = '\x1b7\x1b[6n\x1b8\x1b[32mR 4.5.2>\x1b[0m [1] 2\r\n';
+  const clean = sanitizePtyOutput(raw);
+  assert.equal(clean.includes('\x1b7'), false);
+  assert.equal(clean.includes('\x1b8'), false);
+  assert.equal(clean.includes('\x1b[6n'), false);
+  assert.match(clean, /\x1b\[32mR 4\.5\.2>\x1b\[0m \[1\] 2\n/);
+});
+
+test('T3CodeService probes status and provides R Copilot fixes and explanations', async () => {
+  const { T3CodeService } = require('../main/t3code-service');
+  const svc = new T3CodeService();
+  const status = await svc.getStatus();
+  assert.equal(status.ok, true);
+  assert.equal(typeof status.t3Running, 'boolean');
+
+  const fixRes = await svc._localRExpertFallback({
+    mode: 'inline-fix',
+    prompt: 'Fix warnings',
+    selection: 'if (x == NA) y <- T',
+    language: 'r',
+    activeDataset: 'mtcars',
+    lang: 'es'
+  });
+  assert.equal(fixRes.ok, true);
+  assert.match(fixRes.code, /is\.na\(x\)/);
+  assert.match(fixRes.code, /TRUE/);
 });

@@ -12,6 +12,9 @@
     <div class="titlebar-left">
       <img src="../assets/icon.svg" alt="R Commander Studio" class="titlebar-icon">
       <nav id="menuBar" class="menubar" aria-label="Application menu"></nav>
+      <span class="tb-sep"></span>
+      <button type="button" id="btnTopOpenFile" class="top-icon-btn" data-icon="file" data-size="14" data-i18n-title="openFile"></button>
+      <button type="button" id="btnTopOpenFolder" class="top-icon-btn" data-icon="folder-open" data-size="14" data-i18n-title="openFolder"></button>
     </div>
 
     <div class="titlebar-center">
@@ -22,6 +25,7 @@
     </div>
 
     <div class="titlebar-right">
+      <button type="button" id="btnTopCopilot" class="top-icon-btn" data-icon="sparkle" data-size="15" data-i18n-title="copilotToggle"></button>
       <button type="button" id="btnTopLang" class="top-lang-btn" data-i18n-title="switchLanguage">ES</button>
       <button type="button" id="btnRun" class="top-icon-btn run-accent" data-icon="play" data-size="14" data-i18n-title="runSelection"></button>
       <button type="button" id="btnRunAll" class="top-icon-btn" data-icon="play-all" data-size="14" data-i18n-title="runAll"></button>
@@ -45,8 +49,10 @@
       <button type="button" id="actExplorer" class="act-btn active" data-icon="files" data-size="19" data-i18n-title="sidebarExplorerTitle"></button>
       <button type="button" id="actRcmdr" class="act-btn active" data-icon="r-logo" data-size="19" data-i18n-title="sidebarRcmdrTitle"></button>
       <button type="button" id="actPlots" class="act-btn" data-icon="graph-line" data-size="19" data-i18n-title="dockPlots"></button>
-      <button type="button" id="actHelp" class="act-btn" data-icon="question" data-size="19" data-i18n-title="dockHelp"></button>
+      <button type="button" id="actHelp" class="act-btn" data-icon="book" data-size="19" data-i18n-title="dockHelp"></button>
+      <button type="button" id="actCopilot" class="act-btn" data-icon="sparkle" data-size="19" data-i18n-title="copilotToggle"></button>
       <span class="spacer"></span>
+      <button type="button" id="actGuide" class="act-btn act-guide-btn" data-i18n-title="guideBtnTitle" aria-label="Guide"><span class="act-guide-circle">?</span></button>
       <button type="button" id="actTheme" class="act-btn" data-icon="moon" data-size="18" data-i18n-title="toggleTheme"></button>
       <button type="button" id="actSettings" class="act-btn" data-icon="settings" data-size="19" data-i18n-title="openSettings"></button>
     </nav>
@@ -99,6 +105,7 @@
               <span class="acc-title" id="folderHeaderName" data-i18n="workspaceFolder">Carpeta de trabajo</span>
               <span class="spacer"></span>
               <div class="acc-actions">
+                <button type="button" id="btnExplorerOpenFile" class="icon-btn" data-icon="file" data-size="14" data-i18n-title="openFile"></button>
                 <button type="button" id="btnOpenFolder" class="icon-btn" data-icon="folder-open" data-size="14" data-i18n-title="openFolderBtn"></button>
                 <button type="button" id="btnExplorerNewFile" class="icon-btn" data-icon="new-file" data-size="14" data-i18n-title="newFileBtn" hidden></button>
                 <button type="button" id="btnExplorerNewFolder" class="icon-btn" data-icon="new-folder" data-size="14" data-i18n-title="newFolderBtn" hidden></button>
@@ -113,6 +120,15 @@
 
     <!-- Center Editor + Bottom Panel Stack -->
     <main class="center-stack" id="centerStack">
+      <!-- Inline T3 Code Copilot Fix Bar (Ctrl+I) -->
+      <div id="t3InlineBar" class="t3-inline-bar" hidden>
+        <span class="ico t3-inline-ico" data-icon="sparkle" data-size="14"></span>
+        <input id="t3InlineInput" type="text" autocomplete="off">
+        <span id="t3InlineStatus" class="t3-inline-status"></span>
+        <button type="button" id="btnT3InlineRun" class="dlg-btn primary">Ctrl+I</button>
+        <button type="button" id="btnT3InlineClose" class="icon-btn" data-icon="close" data-size="13"></button>
+      </div>
+
       <div class="editor-and-preview">
         <div class="editor-groups" id="editorGroups">
           <section class="editor-group focused" id="editorGroup0" data-group="0">
@@ -206,6 +222,7 @@
               <button type="button" id="btnPanelInterrupt" class="icon-btn" data-icon="stop" data-size="13" data-i18n-title="interruptR"></button>
               <button type="button" id="btnPanelRestart" class="icon-btn" data-icon="restart" data-size="14" data-i18n-title="restartR"></button>
               <button type="button" id="btnPanelClear" class="icon-btn" data-icon="clear" data-size="14" data-i18n-title="clearConsole"></button>
+              <button type="button" id="btnPanelMaximize" class="icon-btn" data-icon="maximize" data-size="14" data-i18n-title="maximizePanel"></button>
               <button type="button" id="btnPanelOrient" class="icon-btn" data-icon="orient-v" data-size="14" data-i18n-title="togglePanelOrientation"></button>
               <button type="button" id="btnPanelDockCycle" class="icon-btn" data-icon="panel-right" data-size="14" data-i18n-title="toggleDockPosition"></button>
               <button type="button" id="btnPanelClose" class="icon-btn" data-icon="close" data-size="14" data-i18n-title="dlgClose"></button>
@@ -239,6 +256,7 @@
                 <button type="button" id="btnPlotZoomReset" class="plot-zoom-readout" title="Reset Zoom">100%</button>
                 <button type="button" id="btnPlotZoomIn" class="icon-btn" data-icon="zoom-in" data-size="14" title="Zoom In"></button>
                 <span class="spacer"></span>
+                <button type="button" id="btnPlotPopout" class="icon-btn" data-icon="new-window" data-size="14" data-i18n-title="outOpenNewWindow"></button>
                 <button type="button" id="btnPlotCopyPng" class="icon-btn" data-icon="copy" data-size="14" title="Copy PNG"></button>
                 <button type="button" id="btnPlotSaveSvg" class="icon-btn" data-icon="download" data-size="14" data-i18n-title="plotSaveSvg"></button>
                 <button type="button" id="btnPlotSavePng" class="plot-fmt-btn" title="Export PNG (2x)">PNG</button>
@@ -249,6 +267,18 @@
             </div>
 
             <div class="dock-pane" id="dockProblems" hidden>
+              <div class="problems-toolbar">
+                <button type="button" id="btnProblemsToggleErrors" class="problems-filter-btn active" data-i18n-title="problemsFilterHint">
+                  <span class="ico problem-sev-ico error" data-icon="error" data-size="12"></span>
+                  <span data-i18n="problemsShowErrors">Errores</span>
+                  <span id="problemsFilterErrCount" class="problems-filter-count">0</span>
+                </button>
+                <button type="button" id="btnProblemsToggleWarnings" class="problems-filter-btn active" data-i18n-title="problemsFilterHint">
+                  <span class="ico problem-sev-ico warning" data-icon="warning" data-size="12"></span>
+                  <span data-i18n="problemsShowWarnings">Avisos</span>
+                  <span id="problemsFilterWarnCount" class="problems-filter-count">0</span>
+                </button>
+              </div>
               <div class="problems-list" id="problemsList"></div>
             </div>
 
@@ -272,6 +302,9 @@
         <div class="sidebar-titlebar" draggable="true" data-drag-panel="rcmdr" data-i18n-title="dragToDockHint">
           <span class="sidebar-title-text" data-i18n="sidebarRcmdrTitle">R Commander</span>
           <span class="spacer"></span>
+          <button type="button" id="btnRcmdrInstallPkg" class="icon-btn" data-icon="package" data-size="14" data-i18n-title="rcmdrInstallPkgBtn"></button>
+          <button type="button" id="btnRcmdrAutoClose" class="icon-btn" data-icon="truncate" data-size="14" data-i18n-title="rcmdrCloseMenusToggle"></button>
+          <button type="button" id="btnRcmdrMenuAction" class="icon-btn" data-icon="paste-doc" data-size="14" data-i18n-title="rcmdrMenuActionToggle"></button>
           <button type="button" id="btnRcmdrFocusSearch" class="icon-btn" data-icon="search" data-size="14" data-i18n-title="rcmdrSearchPlaceholder"></button>
           <button type="button" id="btnRcmdrCollapse" class="icon-btn" data-icon="collapse-all" data-size="14" data-i18n-title="rcmdrCollapseAll"></button>
           <button type="button" id="btnFlipRcmdr" class="icon-btn" data-icon="dock-left" data-size="14" data-i18n-title="moveSidebarLeft"></button>
@@ -400,6 +433,57 @@
     </div>
   </div>
 
+  <!-- T3 Code Copilot Chat Window (Ctrl+Alt+B) -->
+  <aside id="t3ChatWindow" class="t3-chat-window" hidden>
+    <div class="t3-chat-head">
+      <span class="ico" data-icon="sparkle" data-size="14"></span>
+      <span class="t3-chat-title" data-i18n="copilotTitle">T3 Code Copilot</span>
+      <kbd class="t3-kbd">Ctrl+Alt+B</kbd>
+      <span class="spacer"></span>
+      <button type="button" id="btnT3Clear" class="icon-btn" data-icon="clear" data-size="13" data-i18n-title="clearConsole"></button>
+      <button type="button" id="btnT3Popout" class="icon-btn" data-icon="new-window" data-size="13" data-i18n-title="outOpenNewWindow"></button>
+      <button type="button" id="btnT3Close" class="icon-btn" data-icon="close" data-size="14" data-i18n-title="dlgClose"></button>
+    </div>
+    <div class="t3-status-bar">
+      <span id="t3StatusDot" class="t3-status-dot" data-state="offline"></span>
+      <span id="t3StatusText" class="t3-status-text">T3 Code</span>
+      <button type="button" id="btnT3Install" class="dlg-btn primary t3-install-btn" hidden>Install T3 Code</button>
+      <button type="button" id="btnT3Start" class="dlg-btn t3-install-btn" hidden>Start T3 Code</button>
+    </div>
+    <div id="t3ContextBar" class="t3-context-bar"></div>
+    <div class="t3-quick-chips">
+      <button type="button" class="t3-chip" data-t3-prompt="/fix">/fix</button>
+      <button type="button" class="t3-chip" data-t3-prompt="/explain">/explain</button>
+      <button type="button" class="t3-chip" data-t3-prompt="/plot">/plot</button>
+      <button type="button" class="t3-chip" data-t3-prompt="/rmd">/rmd</button>
+    </div>
+    <div id="t3ChatMessages" class="t3-chat-messages"></div>
+    <div class="t3-chat-foot">
+      <textarea id="t3ChatInput" rows="2" placeholder="Ask T3 Code Copilot or type /fix, /explain, /plot, /rmd..."></textarea>
+      <button type="button" id="btnT3Send" class="dlg-btn primary" data-icon="play" data-size="13"></button>
+    </div>
+  </aside>
+
+  <!-- Interactive Bilingual User Guide Modal (? button in Activity Bar) -->
+  <div id="guideBackdrop" class="modal-backdrop" hidden>
+    <div class="rcmdr-modal guide-modal" role="dialog" aria-modal="true" aria-labelledby="guideModalTitle">
+      <div class="rcmdr-modal-head">
+        <div>
+          <h2 id="guideModalTitle" class="rcmdr-modal-title" data-i18n="guideTitle">R Commander Studio — Guía de uso</h2>
+        </div>
+        <div class="rcmdr-row">
+          <button type="button" id="guidePopoutBtn" class="icon-btn" data-icon="new-window" data-size="14" data-i18n-title="outOpenNewWindow"></button>
+          <button type="button" id="guideCloseBtn" class="icon-btn" data-icon="close" data-size="14" data-i18n-title="dlgClose"></button>
+        </div>
+      </div>
+      <div id="guideBody" class="rcmdr-modal-body guide-body"></div>
+      <div class="rcmdr-modal-foot">
+        <span class="spacer"></span>
+        <button type="button" id="guideOkBtn" class="dlg-btn primary" data-i18n="dlgClose">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" hidden></div>
 
   <script src="../shared/i18n-dict.js"></script>
@@ -416,6 +500,7 @@
   <script src="table-viewer.js"></script>
   <script src="settings-modal.js"></script>
   <script src="dialog-modal.js"></script>
+  <script src="t3-copilot.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

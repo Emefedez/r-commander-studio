@@ -158,6 +158,87 @@ function parseRSyntaxError(errorText, sourceText = '') {
 }
 
 /**
+ * Lightweight R static lint checks for common warnings (yellow wavy underline in Monaco, like VS Code).
+ */
+function lintRWarnings(rSource = '') {
+  const lines = String(rSource || '').split(/\r?\n/);
+  const warnings = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    if (!raw || /^\s*#/.test(raw)) continue;
+    // Strip strings and trailing comments for token scanning
+    const codeOnly = raw
+      .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '""')
+      .replace(/#.*$/, '');
+    const lineNum = i + 1;
+
+    // 1. Short-form T / F boolean literals (prone to accidental shadowing in R)
+    const tfRegex = /(?:^|[=(,\s])([TF])(?=[),\s]|$)/g;
+    let m;
+    while ((m = tfRegex.exec(codeOnly)) !== null) {
+      const col = m.index + m[0].lastIndexOf(m[1]) + 1;
+      warnings.push({
+        startLineNumber: lineNum,
+        startColumn: col,
+        endLineNumber: lineNum,
+        endColumn: col + 1,
+        message: `Use ${m[1] === 'T' ? 'TRUE' : 'FALSE'} instead of '${m[1]}' (which can be overwritten as a variable).`,
+        severity: 'warning',
+        source: 'R lint'
+      });
+    }
+
+    // 2. Direct == / != comparison with NA, NULL, or NaN
+    const naRegex = /(?:==|!=)\s*(NA|NULL|NaN)\b|\b(NA|NULL|NaN)\s*(?:==|!=)/g;
+    while ((m = naRegex.exec(codeOnly)) !== null) {
+      const target = m[1] || m[2] || 'NA';
+      const fn = target === 'NULL' ? 'is.null(x)' : target === 'NaN' ? 'is.nan(x)' : 'is.na(x)';
+      const col = m.index + 1;
+      warnings.push({
+        startLineNumber: lineNum,
+        startColumn: col,
+        endLineNumber: lineNum,
+        endColumn: col + m[0].length,
+        message: `Use ${fn} instead of '==' or '!=' with ${target}.`,
+        severity: 'warning',
+        source: 'R lint'
+      });
+    }
+
+    // 3. 1:length(...) or 1:nrow(...) in loops (unsafe when empty)
+    const seqRegex = /\b1\s*:\s*(length|nrow|ncol|NROW|NCOL)\s*\(/g;
+    while ((m = seqRegex.exec(codeOnly)) !== null) {
+      const col = m.index + 1;
+      warnings.push({
+        startLineNumber: lineNum,
+        startColumn: col,
+        endLineNumber: lineNum,
+        endColumn: col + m[0].length,
+        message: `Prefer seq_along() or seq_len() over 1:${m[1]}(...), which counts backwards to 0 when empty.`,
+        severity: 'warning',
+        source: 'R lint'
+      });
+    }
+
+    // 4. sapply(...) warning in scripts where vapply/lapply is safer
+    const sapplyRegex = /\bsapply\s*\(/g;
+    while ((m = sapplyRegex.exec(codeOnly)) !== null) {
+      const col = m.index + 1;
+      warnings.push({
+        startLineNumber: lineNum,
+        startColumn: col,
+        endLineNumber: lineNum,
+        endColumn: col + 6,
+        message: `Consider vapply() or lapply() when return type stability matters.`,
+        severity: 'warning',
+        source: 'R lint'
+      });
+    }
+  }
+  return warnings;
+}
+
+/**
  * Fast Rscript syntax checker (`parse(text=..., keep.source=TRUE)`).
  * Always works immediately even if `languageserver` is absent or still starting up.
  */
@@ -168,8 +249,9 @@ function checkRSyntax(source, { isRmd = false, rscriptPath, timeoutMs = 4000 } =
   if (!rSource.trim()) {
     return Promise.resolve({ ok: true, diagnostics: [] });
   }
+  const warningDiags = lintRWarnings(rSource);
   if (!bin) {
-    return Promise.resolve({ ok: false, diagnostics: [], error: 'Rscript not found' });
+    return Promise.resolve({ ok: false, diagnostics: warningDiags, error: 'Rscript not found' });
   }
 
   // Reads source via stdin so there is zero temp-file overhead.
@@ -214,26 +296,26 @@ function checkRSyntax(source, { isRmd = false, rscriptPath, timeoutMs = 4000 } =
         const errMsg = stdout.slice(errIdx + 4).trim();
         resolve({
           ok: true,
-          diagnostics: parseRSyntaxError(errMsg, rSource)
+          diagnostics: [...parseRSyntaxError(errMsg, rSource), ...warningDiags]
         });
         return;
       }
       if (stdout.includes('OK')) {
-        resolve({ ok: true, diagnostics: [] });
+        resolve({ ok: true, diagnostics: warningDiags });
         return;
       }
       if (stderr.trim()) {
-        resolve({ ok: true, diagnostics: parseRSyntaxError(stderr, rSource) });
+        resolve({ ok: true, diagnostics: [...parseRSyntaxError(stderr, rSource), ...warningDiags] });
         return;
       }
-      resolve({ ok: true, diagnostics: [] });
+      resolve({ ok: true, diagnostics: warningDiags });
     };
 
     child.on('error', (err) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ ok: false, diagnostics: [], error: err.message });
+      resolve({ ok: false, diagnostics: warningDiags, error: err.message });
     });
     child.on('close', finish);
 

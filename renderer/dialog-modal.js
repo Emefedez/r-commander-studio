@@ -45,6 +45,7 @@
   class RcmdrDialogModal {
     constructor() {
       this.backdrop = document.getElementById('rcmdrModalBackdrop');
+      this.modalEl = this.backdrop ? this.backdrop.querySelector('.rcmdr-modal') : null;
       this.titleEl = document.getElementById('rcmdrModalTitle');
       this.subEl = document.getElementById('rcmdrModalSub');
       this.dsRow = document.getElementById('rcmdrDsRow');
@@ -87,6 +88,10 @@
     open(payload, onDeliver, options = {}) {
       this.close(true);
       this.sessionId = payload.sessionId;
+      this.commandId = payload.id || '';
+      if (this.modalEl) {
+        this.modalEl.dataset.commandId = this.commandId;
+      }
       this.strings = payload.strings || {};
       this.onDeliver = onDeliver;
       this.stepMode = Boolean(options.stepMode);
@@ -147,7 +152,9 @@
 
         if (isList) {
           const many = f.multi || f.type === 'models' || f.type === 'installed' || (f.type === 'rlist' && !f.single);
-          const sel = h('select', { size: f.compact && !many ? 1 : f.filterable ? 12 : 7, multiple: many });
+          const isPkgDialog = this.commandId === 'installPackages' || this.commandId === 'updatePackages';
+          const listRows = f.compact && !many ? 1 : isPkgDialog ? 15 : f.filterable ? 13 : 9;
+          const sel = h('select', { size: listRows, multiple: many });
           const filter = f.filterable ? h('input', { type: 'text', placeholder: S.filter || 'Type to filter...', style: { marginBottom: '6px' } }) : null;
           if (filter) filter.addEventListener('input', () => applyFilter(sel, filter.value));
           if (f.optional && !many) sel.dataset.optional = '1';
@@ -476,7 +483,11 @@
             placeholder: f.placeholder || (f.free ? S.freeHint || 'Type variable names...' : '')
           });
           const isBrowse = f.type === 'file' || f.type === 'dir';
-          const isWide = !f.compact && (f.type === 'text' || f.type === 'name' || isBrowse || f.free || f.type === 'numlist');
+          const isPkgDialog = this.commandId === 'installPackages' || this.commandId === 'updatePackages';
+          const isWide =
+            !f.compact &&
+            !isPkgDialog &&
+            (f.type === 'text' || f.type === 'name' || isBrowse || f.free || f.type === 'numlist');
           const browseBtn = isBrowse
             ? h('button', {
                 type: 'button',

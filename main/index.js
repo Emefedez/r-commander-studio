@@ -12,6 +12,7 @@ const { RcmdrService, report } = require('./rcmdr-service');
 const { NoteCompleteBridge } = require('./bridge');
 const { createUpdater } = require('./updater');
 const { integrateLinuxDesktop } = require('./linux-integration');
+const { T3CodeService } = require('./t3code-service');
 const fsService = require('./fs-service');
 const mainI18n = require('./i18n');
 
@@ -22,6 +23,7 @@ let lsp = null;
 let rcmdr = null;
 let bridge = null;
 let appUpdater = null;
+let t3code = null;
 let lastSnapshot = { datasets: {}, models: [], hclusts: [], objects: [] };
 let rendererReady = false;
 const pendingOpenPaths = [];
@@ -288,9 +290,10 @@ function registerIpc() {
   });
 
   // --- File & Workspace Explorer I/O ---
-  ipcMain.handle('file:open', async () => {
+  ipcMain.handle('file:open', async (_e, { defaultDir } = {}) => {
     const res = await dialog.showOpenDialog(mainWindow, {
       title: mainI18n.t('openFile'),
+      defaultPath: defaultDir && fs.existsSync(defaultDir) ? defaultDir : undefined,
       properties: ['openFile', 'multiSelections'],
       filters: [
         { name: 'R, Markdown & Data', extensions: ['R', 'r', 'Rmd', 'rmd', 'qmd', 'md', 'csv', 'tsv', 'txt', 'RData', 'rda', 'rds', 'xlsx', 'xls'] },
@@ -343,10 +346,15 @@ function registerIpc() {
     return { ok: true, filePath, name: path.basename(filePath) };
   });
 
-  ipcMain.handle('file:saveAs', async (_e, { defaultName, content, filters }) => {
+  ipcMain.handle('file:saveAs', async (_e, { defaultName, defaultDir, content, filters }) => {
+    const baseName = defaultName || 'script.R';
+    const resolvedDefault =
+      defaultDir && !path.isAbsolute(baseName) && fs.existsSync(defaultDir)
+        ? path.join(defaultDir, baseName)
+        : baseName;
     const res = await dialog.showSaveDialog(mainWindow, {
       title: mainI18n.t('saveAs'),
-      defaultPath: defaultName || 'script.R',
+      defaultPath: resolvedDefault,
       filters: filters || [
         { name: 'R Script', extensions: ['R', 'r'] },
         { name: 'R Markdown', extensions: ['Rmd', 'rmd', 'qmd'] },
@@ -661,6 +669,27 @@ function registerIpc() {
     return integrateLinuxDesktop({ createDesktopShortcut: true });
   });
 
+  // --- T3 Code Background Copilot & Cross-Platform Installer IPC ---
+  ipcMain.handle('t3:status', async () => {
+    if (!t3code) t3code = new T3CodeService();
+    return t3code.getStatus();
+  });
+  ipcMain.handle('t3:start', async () => {
+    if (!t3code) t3code = new T3CodeService();
+    return t3code.startBackend();
+  });
+  ipcMain.handle('t3:install', async (_e, opts = {}) => {
+    if (!t3code) t3code = new T3CodeService();
+    return t3code.installT3Code({
+      preferWsl: opts.preferWsl !== false,
+      onProgress: (p) => sendToRenderer('t3:installProgress', p)
+    });
+  });
+  ipcMain.handle('t3:ask', async (_e, opts = {}) => {
+    if (!t3code) t3code = new T3CodeService();
+    return t3code.askCopilot(opts);
+  });
+
   ipcMain.handle('studio:openOutputWindow', async (_e, { title, htmlContent, rawText, code, sourceLabel, isLight } = {}) => {
     const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
     const win = new BrowserWindow({
@@ -760,9 +789,16 @@ async function bootServices() {
   arf = new ArfTerminal();
   rcmdr = new RcmdrService();
   lsp = new RLanguageServer({ rscriptPath: runtime.rscriptPath });
+  t3code = new T3CodeService();
+  t3code.startBackend().catch(() => {});
 
   runtime.on('output', (payload) => sendToRenderer('r:output', payload));
   runtime.on('viewTable', (payload) => sendToRenderer('r:viewTable', payload));
+  runtime.on('browseUrl', (url) => {
+    if (typeof url === 'string' && /^(https?|file):\/\//i.test(url)) {
+      shell.openExternal(url).catch(() => {});
+    }
+  });
   arf.on('output', (payload) => sendToRenderer('arf:output', payload));
   arf.on('status', (status) => sendToRenderer('arf:status', status));
   lsp.on('diagnostics', (payload) => sendToRenderer('lsp:diagnostics', payload));

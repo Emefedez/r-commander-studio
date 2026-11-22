@@ -12,6 +12,10 @@ function sanitizePtyOutput(chunk) {
   return String(chunk ?? '')
     // Strip OSC sequences (\x1b]...BEL or ST)
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    // Strip 2-byte DEC save/restore cursor & keypad mode escapes (\x1b7, \x1b8, \x1b=, \x1b>)
+    .replace(/\x1b[78=>]/g, '')
+    // Strip charset selection escapes (\x1b(B, \x1b)0, etc.)
+    .replace(/\x1b[()][A-Z0-9]/g, '')
     // Strip CSI sequences that are NOT SGR color ('m')
     .replace(/\x1b\[[0-9;?]*[A-LN-Za-ln-z]/g, '')
     // Normalize CRLF -> LF and strip lone CR
@@ -53,10 +57,10 @@ class ArfTerminal extends EventEmitter {
 import os, pty, select, signal, sys, termios, struct, fcntl
 pid, fd = pty.fork()
 if pid == 0:
-    os.execvp(sys.argv[1], [sys.argv[1]])
+    os.execvp(sys.argv[1], [sys.argv[1], "--no-history"])
 else:
     try:
-        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 120, 0, 0))
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 36, 120, 0, 0))
     except Exception:
         pass
     stdin_fd = sys.stdin.fileno()
@@ -71,6 +75,11 @@ else:
                 data = os.read(fd, 4096)
                 if not data:
                     break
+                if b"\\x1b[6n" in data:
+                    try:
+                        os.write(fd, b"\\x1b[1;1R")
+                    except OSError:
+                        pass
                 os.write(stdout_fd, data)
             except OSError:
                 break
@@ -89,9 +98,13 @@ else:
 `;
 
     try {
+      const defaultBrowser =
+        process.env.R_BROWSER ||
+        process.env.BROWSER ||
+        (process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open');
       const proc = spawn('python3', ['-u', '-c', pyBridge, this.arfPath], {
         cwd: this.cwd,
-        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', LC_ALL: 'C.UTF-8' },
+        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', LC_ALL: 'C.UTF-8', R_BROWSER: defaultBrowser },
         stdio: ['pipe', 'pipe', 'pipe']
       });
       this._proc = proc;
@@ -129,9 +142,10 @@ else:
       if (!this.start()) return false;
     }
     try {
-      const text = String(code ?? '');
-      const line = text.endsWith('\n') ? text : `${text}\n`;
-      this._proc.stdin.write(line, 'utf8');
+      const text = String(code ?? '').replace(/\r\n/g, '\n').replace(/\n+$/, '');
+      if (!text.trim()) return true;
+      const payload = text.includes('\n') ? `\x1b[200~${text}\x1b[201~\r` : `${text}\r`;
+      this._proc.stdin.write(payload, 'utf8');
       return true;
     } catch {
       return false;

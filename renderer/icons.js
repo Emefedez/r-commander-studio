@@ -83,7 +83,9 @@
     link: `<path d="M6.8 9.2a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2L7.7 4.1" ${S}/><path d="M9.2 6.8a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1.1-1.1" ${S}/>`,
     toc: `<circle cx="3" cy="4.2" r="0.9" fill="currentColor"/><circle cx="3" cy="8" r="0.9" fill="currentColor"/><circle cx="3" cy="11.8" r="0.9" fill="currentColor"/><path d="M5.5 4.2h8M5.5 8h8M5.5 11.8h8" ${S}/>`,
     'paste-doc': `<path d="M5 2.5h6l2.5 2.5v8.5H5z" ${S}/><path d="M2.5 8h6M6.5 6l2 2-2 2" ${S}/>`,
-    maximize: `<rect x="2.5" y="2.5" width="11" height="11" ${S}/><polyline points="6,2.5 2.5,2.5 2.5,6" ${S}/><polyline points="10,13.5 13.5,13.5 13.5,10" ${S}/>`
+    maximize: `<rect x="2.5" y="2.5" width="11" height="11" ${S}/><polyline points="6,2.5 2.5,2.5 2.5,6" ${S}/><polyline points="10,13.5 13.5,13.5 13.5,10" ${S}/>`,
+    sparkle: `<path d="M8 1.8l1.6 3.8 3.8 1.6-3.8 1.6L8 12.6 6.4 8.8 2.6 7.2l3.8-1.6z" ${S}/><path d="M12.8 11.2l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z" ${S}/>`,
+    package: `<path d="M8 1.8l5.5 2.8v6.8L8 14.2 2.5 11.4V4.6z" ${S}/><path d="M2.5 4.6L8 7.4l5.5-2.8M8 7.4v6.8M5.2 3.2l5.5 2.8" ${S}/>`
   };
 
   function svg(name, { size = 16, cls = '', color = '' } = {}) {

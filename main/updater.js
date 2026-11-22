@@ -76,11 +76,15 @@ function parseSums(text) {
   return sums;
 }
 
+function isStudioAppImage(p) {
+  return Boolean(p && /r[-_\s]*commander[-_\s]*studio/i.test(path.basename(String(p))));
+}
+
 function createUpdater({
   app,
   fetch = globalThis.fetch,
   stateFile,
-  appImage = process.env.APPIMAGE || '',
+  appImage = isStudioAppImage(process.env.APPIMAGE) ? process.env.APPIMAGE : '',
   platform = process.platform,
   arch = process.arch,
   now = () => Date.now(),

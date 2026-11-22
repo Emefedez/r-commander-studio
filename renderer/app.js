@@ -94,6 +94,10 @@ boxplot(Sepal.Length ~ Species, data = iris,
     layout: loadSavedLayout(),
     activePanelTab: 'console', // 'console' | 'arf' | 'plots' | 'problems' | 'help'
     runTarget: localStorage.getItem('rcs-run-target') || 'r', // 'r' | 'arf'
+    editorFontSize: Math.max(10, Math.min(28, Number(localStorage.getItem('rcs-editor-font-size')) || 13.5)),
+    uiZoomFactor: Math.max(0.7, Math.min(1.6, Number(localStorage.getItem('rcs-ui-zoom-factor')) || 1)),
+    panelMaximized: false,
+    autoSaveTimers: new Map(),
 
     tree: [],
     workspaceRoot: null,
@@ -354,14 +358,33 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const hasRight = [...dockRight.children].some((c) => !c.hidden && !c.classList.contains('peek-open'));
     const hasBottom = L.panel.open && L.panel.dock === 'bottom';
 
+    // When both sidebars are open on the same side (and the panel is not in that side dock),
+    // stack them vertically in one clean column so they don't eat double horizontal width!
+    const bothLeft =
+      L.sidebars.explorer.open &&
+      L.sidebars.rcmdr.open &&
+      L.sidebars.explorer.dock === 'left' &&
+      L.sidebars.rcmdr.dock === 'left' &&
+      !(L.panel.open && L.panel.dock === 'left');
+    const bothRight =
+      L.sidebars.explorer.open &&
+      L.sidebars.rcmdr.open &&
+      L.sidebars.explorer.dock === 'right' &&
+      L.sidebars.rcmdr.dock === 'right' &&
+      !(L.panel.open && L.panel.dock === 'right');
+    dockLeft.classList.toggle('stack-sidebars', bothLeft);
+    dockRight.classList.toggle('stack-sidebars', bothRight);
+
     dockLeft.hidden = !hasLeft && !L.isPeeking('explorer') && !L.isPeeking('rcmdr');
     leftGrip.hidden = !hasLeft;
     dockRight.hidden = !hasRight && !L.isPeeking('explorer') && !L.isPeeking('rcmdr');
     rightGrip.hidden = !hasRight;
     dockBottom.hidden = !hasBottom;
     bottomGrip.hidden = !hasBottom;
+    dockBottom.classList.toggle('maximized', Boolean(state.panelMaximized && hasBottom));
+    $('btnPanelMaximize')?.classList.toggle('active', Boolean(state.panelMaximized && hasBottom));
 
-    if (hasBottom) dockBottom.style.height = `${L.panel.size}px`;
+    if (hasBottom && !state.panelMaximized) dockBottom.style.height = `${L.panel.size}px`;
 
     // Sync Activity Bar & Top Bar active indicators
     $('actExplorer').classList.toggle('active', L.sidebars.explorer.open);
@@ -489,6 +512,17 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
     $('btnPanelLimitOutput')?.classList.toggle('active', Boolean(s.limitOutput));
     $('btnPanelWordWrap')?.classList.toggle('active', s.consoleWrap !== false);
+    $('btnRcmdrAutoClose')?.classList.toggle('active', Boolean(s.closeMenusAfterChoice));
+    if ($('btnRcmdrMenuAction')) {
+      $('btnRcmdrMenuAction').classList.toggle('active', s.menuAction !== 'run');
+      $('btnRcmdrMenuAction').title = `${t('rcmdrMenuActionToggle')}: ${s.menuAction || 'both'}`;
+    }
+    $('btnProblemsToggleErrors')?.classList.toggle('active', s.showProblemErrors !== false);
+    $('btnProblemsToggleWarnings')?.classList.toggle('active', s.showProblemWarnings !== false);
+    for (const tab of state.tabs) {
+      if (tab.kind === 'code') applyMarkersForUri(tab.uri);
+    }
+    renderProblemsPanel();
 
     if (s.runTarget === 'arf' && state.arfAvailable) state.runTarget = 'arf';
     else if (s.runTarget === 'terminal') state.runTarget = 'r';
@@ -573,12 +607,53 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
   }
 
-  // --- ANSI Terminal Output Renderer + Top-Right (...) Hover Actions (for both R Console and arf) ---
+  // --- ANSI Terminal Output Renderer + R Console Syntax Coloring + Top-Right (...) Hover Actions ---
   let activeOutputMenuBtn = null;
   let lastArfBlock = null;
   let lastArfBlockTime = 0;
+  let lastRBlock = null;
+  let lastRBlockTime = 0;
 
-  function renderAnsiInto(targetEl, text) {
+  function escapeHtmlText(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function colorizeRConsolePlain(text) {
+    const lines = String(text || '').split('\n');
+    return lines
+      .map((line) => {
+        if (!line) return '';
+        if (/^\s*(Error\b|Error:)/i.test(line)) {
+          return `<span class="rc-err">${escapeHtmlText(line)}</span>`;
+        }
+        if (/^\s*(Warning\b|Warning message|In addition:\s*Warning|Aviso)/i.test(line)) {
+          return `<span class="rc-warn">${escapeHtmlText(line)}</span>`;
+        }
+        const promptMatch = line.match(/^([>+]\s)(.*)$/);
+        if (promptMatch) {
+          const promptHtml = `<span class="rc-prompt">${escapeHtmlText(promptMatch[1])}</span>`;
+          const codeHtml = window.StudioMarkdownPreview?.highlightCode
+            ? window.StudioMarkdownPreview.highlightCode(promptMatch[2], 'r')
+            : escapeHtmlText(promptMatch[2]);
+          return `${promptHtml}<span class="code-highlighted">${codeHtml}</span>`;
+        }
+        if (/^\s*#/.test(line)) {
+          return `<span class="console-line-meta">${escapeHtmlText(line)}</span>`;
+        }
+        // Colorize vector indices [1], [1, ], strings, numbers, and R constants in output tables/summaries
+        return escapeHtmlText(line)
+          .replace(/^(\s*\[[0-9,\s]+\])/g, '<span class="rc-idx">$1</span>')
+          .replace(/(&quot;[^&]*?&quot;|'[^']*?')/g, '<span class="rc-str">$1</span>')
+          .replace(/\b(TRUE|FALSE|NA|NULL|Inf|NaN)\b/g, '<span class="rc-kw">$1</span>')
+          .replace(/(^|[\s:(,=])(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b/gi, '$1<span class="rc-num">$2</span>');
+      })
+      .join('\n');
+  }
+
+  function renderAnsiInto(targetEl, text, { syntaxHighlight = false } = {}) {
     if (text.includes('\x1b[')) {
       const parts = text.split(/(\x1b\[[0-9;]*m)/g);
       let classes = [];
@@ -596,11 +671,21 @@ boxplot(Sepal.Length ~ Species, data = iris,
           }
         } else if (part) {
           const span = document.createElement('span');
-          if (classes.length) span.className = classes.join(' ');
-          span.textContent = part;
+          if (classes.length) {
+            span.className = classes.join(' ');
+            span.textContent = part;
+          } else if (syntaxHighlight && state.settings.syntaxColors !== false) {
+            span.innerHTML = colorizeRConsolePlain(part);
+          } else {
+            span.textContent = part;
+          }
           targetEl.append(span);
         }
       }
+    } else if (syntaxHighlight && state.settings.syntaxColors !== false) {
+      const span = document.createElement('span');
+      span.innerHTML = colorizeRConsolePlain(text);
+      targetEl.append(span);
     } else {
       targetEl.append(document.createTextNode(text));
     }
@@ -875,6 +960,20 @@ boxplot(Sepal.Length ~ Species, data = iris,
       e.stopPropagation();
       openOutputActionMenu(moreBtn, block, source);
     });
+    block.addEventListener('click', (e) => {
+      if (e.shiftKey && window.studio?.openOutputWindow) {
+        e.preventDefault();
+        e.stopPropagation();
+        const raw = stripAnsi(contentSpan.textContent || '').trim();
+        window.studio.openOutputWindow({
+          title: `${source} — R Commander Studio`,
+          sourceLabel: source,
+          htmlContent: `<pre>${contentSpan.innerHTML}</pre>`,
+          rawText: raw,
+          isLight: state.theme === 'light'
+        });
+      }
+    });
     block.append(contentSpan, moreBtn);
     container.append(block);
     return { block, contentSpan };
@@ -883,33 +982,43 @@ boxplot(Sepal.Length ~ Species, data = iris,
   function appendAnsi(container, text, cls = '', source = 'R Console', coalesceMs = 0) {
     if (!text) return;
     const now = Date.now();
+    const isArf = source.includes('arf');
+    const lastHolder = isArf ? lastArfBlock : lastRBlock;
+    const lastTime = isArf ? lastArfBlockTime : lastRBlockTime;
+
     if (
       coalesceMs > 0 &&
-      lastArfBlock &&
-      lastArfBlock.block.parentElement === container &&
-      now - lastArfBlockTime < coalesceMs
+      lastHolder &&
+      lastHolder.block.parentElement === container &&
+      now - lastTime < coalesceMs
     ) {
-      renderAnsiInto(lastArfBlock.contentSpan, text);
-      lastArfBlockTime = now;
+      renderAnsiInto(lastHolder.contentSpan, text, { syntaxHighlight: !isArf });
+      if (isArf) lastArfBlockTime = now;
+      else lastRBlockTime = now;
       container.scrollTop = container.scrollHeight;
       return;
     }
 
     const created = createHoverableOutputBlock(container, cls, source);
-    renderAnsiInto(created.contentSpan, text);
+    renderAnsiInto(created.contentSpan, text, { syntaxHighlight: !isArf });
     if (coalesceMs > 0) {
-      lastArfBlock = created;
-      lastArfBlockTime = now;
+      if (isArf) {
+        lastArfBlock = created;
+        lastArfBlockTime = now;
+      } else {
+        lastRBlock = created;
+        lastRBlockTime = now;
+      }
     }
     container.scrollTop = container.scrollHeight;
   }
 
   function appendConsole(text, cls = '') {
-    appendAnsi($('consoleOut'), text, cls, 'R Console', 0);
+    appendAnsi($('consoleOut'), text, cls, 'R Console', 1500);
   }
 
   function appendArf(text, cls = '') {
-    appendAnsi($('arfOut'), text, cls, 'arf Terminal', 650);
+    appendAnsi($('arfOut'), text, cls, 'arf Terminal', 1200);
   }
 
   async function ensureArfStarted() {
@@ -981,6 +1090,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     $('btnPlotSavePng').disabled = !hasPlot;
     $('btnPlotSavePdf').disabled = !hasPlot;
     $('btnPlotCopyPng').disabled = !hasPlot;
+    if ($('btnPlotPopout')) $('btnPlotPopout').disabled = !hasPlot;
     $('btnPlotZoomReset').textContent = `${Math.round(state.plotZoom * 100)}%`;
 
     const canvas = $('plotsCanvas');
@@ -996,7 +1106,25 @@ boxplot(Sepal.Length ~ Species, data = iris,
     frame.className = 'plot-frame';
     frame.style.transform = `scale(${state.plotZoom})`;
     frame.innerHTML = state.plots[state.plotIndex];
+    frame.addEventListener('click', (e) => {
+      if (e.shiftKey) {
+        e.preventDefault();
+        popoutCurrentPlot();
+      }
+    });
     canvas.append(frame);
+  }
+
+  async function popoutCurrentPlot() {
+    const s = state.plots[state.plotIndex];
+    if (!s || !window.studio?.openOutputWindow) return;
+    await window.studio.openOutputWindow({
+      title: `Plot ${state.plotIndex + 1} / ${state.plots.length} — R Commander Studio`,
+      sourceLabel: 'R Plot',
+      htmlContent: `<div style="display:grid;place-items:center;background:#fff;padding:12px;border-radius:4px">${s}</div>`,
+      rawText: s,
+      isLight: state.theme === 'light'
+    });
   }
 
   // --- R Help Tab ---
@@ -1129,7 +1257,8 @@ boxplot(Sepal.Length ~ Species, data = iris,
         row.querySelector('.ws-act-view').addEventListener('click', (e) => {
           e.stopPropagation();
           dismissPeekAfterSelection('explorer');
-          openRTableTab({ objectName: ds.name, title: ds.name, editable: false });
+          if (e.shiftKey) popoutDatasetWindow(ds.name);
+          else openRTableTab({ objectName: ds.name, title: ds.name, editable: false });
         });
         row.querySelector('.ws-act-edit').addEventListener('click', (e) => {
           e.stopPropagation();
@@ -1141,7 +1270,12 @@ boxplot(Sepal.Length ~ Species, data = iris,
           openPanelTab('console');
           executeR(`summary(${ds.name})`, { label: `summary(${ds.name})`, fromMenu: true });
         });
-        row.addEventListener('click', () => {
+        row.addEventListener('click', (e) => {
+          if (e.shiftKey) {
+            e.preventDefault();
+            popoutDatasetWindow(ds.name);
+            return;
+          }
           state.activeDataset = ds.name;
           varsBox.hidden = !varsBox.hidden;
           refreshStatusBar();
@@ -1209,10 +1343,16 @@ boxplot(Sepal.Length ~ Species, data = iris,
     return combined;
   }
 
+  function isDiagnosticVisible(d) {
+    if (d.severity === 'error' && state.settings.showProblemErrors === false) return false;
+    if (d.severity === 'warning' && state.settings.showProblemWarnings === false) return false;
+    return true;
+  }
+
   function applyMarkersForUri(uri) {
     const tab = state.tabs.find((x) => x.kind === 'code' && x.uri === uri);
     if (!tab || !state.monaco) return;
-    const diags = mergeDiagnostics(uri);
+    const diags = mergeDiagnostics(uri).filter(isDiagnosticVisible);
     const sevMap = {
       error: state.monaco.MarkerSeverity.Error,
       warning: state.monaco.MarkerSeverity.Warning,
@@ -1239,17 +1379,25 @@ boxplot(Sepal.Length ~ Species, data = iris,
       if (tab.kind !== 'code') continue;
       for (const d of mergeDiagnostics(tab.uri)) all.push({ tab, ...d });
     }
-    const errCount = all.filter((x) => x.severity === 'error').length;
-    const warnCount = all.filter((x) => x.severity === 'warning').length;
+    const totalErrCount = all.filter((x) => x.severity === 'error').length;
+    const totalWarnCount = all.filter((x) => x.severity === 'warning').length;
+    if ($('problemsFilterErrCount')) $('problemsFilterErrCount').textContent = String(totalErrCount);
+    if ($('problemsFilterWarnCount')) $('problemsFilterWarnCount').textContent = String(totalWarnCount);
+    $('btnProblemsToggleErrors')?.classList.toggle('active', state.settings.showProblemErrors !== false);
+    $('btnProblemsToggleWarnings')?.classList.toggle('active', state.settings.showProblemWarnings !== false);
+
+    const visible = all.filter(isDiagnosticVisible);
+    const errCount = visible.filter((x) => x.severity === 'error').length;
+    const warnCount = visible.filter((x) => x.severity === 'warning').length;
     $('statusErrCount').textContent = String(errCount);
     $('statusWarnCount').textContent = String(warnCount);
 
     const badge = $('problemsCount');
-    badge.textContent = String(all.length);
+    badge.textContent = String(visible.length);
     badge.classList.toggle('has-errors', errCount > 0);
 
     listEl.textContent = '';
-    if (!all.length) {
+    if (!visible.length) {
       const empty = document.createElement('div');
       empty.className = 'ws-empty';
       empty.textContent = t('problemsEmpty');
@@ -1257,7 +1405,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
       return;
     }
 
-    for (const item of all) {
+    for (const item of visible) {
       const row = document.createElement('div');
       row.className = 'problem-item';
       const ico = item.severity === 'error' ? 'error' : 'warning';
@@ -1394,12 +1542,53 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
   }
 
-  function createCodeTab({ name, content = '', filePath = null, language = null, dirty = false, groupIndex = null } = {}) {
+  async function autoSaveTabIfEligible(tab) {
+    if (!tab || tab.kind !== 'code' || !tab.dirty || !tab.filePath) return false;
+    try {
+      const res = await window.studio.saveFile({ filePath: tab.filePath, content: tab.model.getValue() });
+      if (res?.ok) {
+        tab.dirty = false;
+        renderTabs(tab.groupIndex);
+        renderFileGroupsPanel();
+        return true;
+      }
+    } catch {
+      // ignore transient auto-save error
+    }
+    return false;
+  }
+
+  function scheduleAutoSave(tab) {
+    if (!tab || tab.kind !== 'code' || !tab.filePath) return;
+    if (state.settings.autoSave !== 'afterDelay') return;
+    clearTimeout(state.autoSaveTimers.get(tab.id));
+    const delayMs = Math.max(300, Number(state.settings.autoSaveDelayMs) || 1500);
+    state.autoSaveTimers.set(
+      tab.id,
+      setTimeout(() => {
+        autoSaveTabIfEligible(tab);
+      }, delayMs)
+    );
+  }
+
+  function createCodeTab({ name, content = '', filePath = null, language = null, dirty = false, groupIndex = null, isStarter = false } = {}) {
     if (filePath) {
       const existing = state.tabs.find((x) => x.kind === 'code' && x.filePath === filePath);
       if (existing) {
         activateTab(existing.id);
         return existing;
+      }
+      // If opening a real file from disk and an untouched starter tab is still open, replace it
+      // so Ctrl+S saves directly to the opened file instead of an untitled starter buffer!
+      const langGuess = language || detectLanguage(name);
+      const starterIdx = state.tabs.findIndex(
+        (x) => x.kind === 'code' && x.isStarter && !x.dirty && !x.filePath && (x.language === langGuess || state.tabs.every((t) => t.isStarter && !t.dirty))
+      );
+      if (starterIdx !== -1 && state.tabs.length <= 2) {
+        const [removed] = state.tabs.splice(starterIdx, 1);
+        if (isRmdOrR(removed.language)) window.studio.lspDidClose({ uri: removed.uri });
+        state.diagnosticsByUri.delete(removed.uri);
+        removed.model.dispose();
       }
     }
 
@@ -1412,15 +1601,17 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const model = existingModel || state.monaco.editor.createModel(content, lang, monacoUri);
     if (existingModel) existingModel.setValue(content);
 
-    const tab = { id, kind: 'code', groupIndex: g, name, filePath, language: lang, uri, model, dirty, viewState: null };
+    const tab = { id, kind: 'code', groupIndex: g, name, filePath, language: lang, uri, model, dirty, isStarter: Boolean(isStarter && !filePath), viewState: null };
     state.tabs.push(tab);
 
     model.onDidChangeContent(() => {
+      tab.isStarter = false;
       if (!tab.dirty) {
         tab.dirty = true;
         renderTabs(tab.groupIndex);
         renderFileGroupsPanel();
       }
+      scheduleAutoSave(tab);
       if (isRmdOrR(tab.language)) {
         clearTimeout(state.lspTimers.get(tab.uri));
         state.lspTimers.set(
@@ -1510,6 +1701,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const prev = activeTabInGroup(g);
     if (prev && prev.kind === 'code' && state.editors[g]) {
       prev.viewState = state.editors[g].saveViewState();
+      if (prev.id !== id && state.settings.autoSave === 'onFocusChange') {
+        autoSaveTabIfEligible(prev);
+      }
     }
     state.activeTabByGroup[g] = id;
     setFocusedGroup(g);
@@ -1518,6 +1712,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     renderFileGroupsPanel();
     if (next.kind === 'code') state.editors[g]?.focus();
     if (state.previewOpen && state.previewMode === 'live' && next.kind === 'code') renderLivePreview();
+    copilot?.updateContextPills?.();
   }
 
   function closeTab(id) {
@@ -1589,7 +1784,14 @@ boxplot(Sepal.Length ~ Species, data = iris,
       });
       el.append(closeBtn);
 
-      el.addEventListener('click', () => activateTab(tab.id));
+      el.addEventListener('click', (e) => {
+        if (e.shiftKey) {
+          e.preventDefault();
+          popoutTabWindow(tab);
+          return;
+        }
+        activateTab(tab.id);
+      });
       bar.append(el);
     }
   }
@@ -1737,7 +1939,20 @@ boxplot(Sepal.Length ~ Species, data = iris,
       const empty = document.createElement('div');
       empty.className = 'ws-empty';
       empty.textContent = t('noFolderOpen');
-      host.append(empty);
+      const actions = document.createElement('div');
+      actions.className = 'ws-empty-actions';
+      const btnFolder = document.createElement('button');
+      btnFolder.type = 'button';
+      btnFolder.className = 'dlg-btn primary';
+      btnFolder.innerHTML = `${svg('folder-open', { size: 13 })}<span>${t('openFolderBtn')}</span>`;
+      btnFolder.addEventListener('click', openFolderAction);
+      const btnFile = document.createElement('button');
+      btnFile.type = 'button';
+      btnFile.className = 'dlg-btn';
+      btnFile.innerHTML = `${svg('file', { size: 13 })}<span>${t('openFileBtn')}</span>`;
+      btnFile.addEventListener('click', openFileAction);
+      actions.append(btnFolder, btnFile);
+      host.append(empty, actions);
       return;
     }
 
@@ -1793,8 +2008,16 @@ boxplot(Sepal.Length ~ Species, data = iris,
               await refreshFolderTree();
             }
           });
-          row.addEventListener('click', () => {
+          row.addEventListener('click', (e) => {
             dismissPeekAfterSelection('explorer');
+            if (e.shiftKey) {
+              e.preventDefault();
+              openPathSmart(node.path).then(() => {
+                const opened = state.tabs.find((x) => x.filePath === node.path);
+                if (opened) popoutTabWindow(opened);
+              });
+              return;
+            }
             openPathSmart(node.path);
           });
           parent.append(row);
@@ -1892,8 +2115,21 @@ boxplot(Sepal.Length ~ Species, data = iris,
   async function executeR(code, { require = [], label = '', fromMenu = false } = {}) {
     if (!String(code || '').trim()) return;
 
-    // Route ad-hoc runs to interactive arf terminal if user chose arf as run target
-    if (!fromMenu && state.runTarget === 'arf' && state.arfAvailable) {
+    // Auto-save dirty files before execution if configured
+    if (state.settings.autoSave === 'onRun' || state.settings.autoSave === 'afterDelay') {
+      for (const tab of state.tabs) {
+        if (tab.kind === 'code' && tab.dirty && tab.filePath) {
+          await autoSaveTabIfEligible(tab);
+        }
+      }
+    }
+
+    // Start a fresh coalesced output block for this execution
+    lastRBlock = null;
+    lastRBlockTime = 0;
+
+    // Route ad-hoc runs to interactive arf terminal if user chose arf as run target OR is currently viewing the arf tab
+    if (!fromMenu && (state.runTarget === 'arf' || state.activePanelTab === 'arf') && state.arfAvailable) {
       openPanelTab('arf');
       if (await ensureArfStarted()) {
         await window.studio.arfSend(code);
@@ -2403,12 +2639,24 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
   // --- File Actions ---
   async function openFileAction() {
-    const files = await window.studio.openFile();
+    const files = await window.studio.openFile({ defaultDir: state.workspaceRoot || undefined });
     if (!files || !files.length) return;
     for (const file of files) {
       if (file.isBinaryData) await loadDataFileIntoR(file.filePath);
       else if (isDelimitedExt(file.name)) openCsvTableTab({ name: file.name, filePath: file.filePath, rawText: file.content });
       else createCodeTab({ name: file.name, filePath: file.filePath, content: file.content, dirty: false });
+    }
+  }
+
+  async function autoOpenWorkspaceStarterFiles() {
+    if (!state.workspaceRoot || !Array.isArray(state.folderTree)) return;
+    const onlyStarters = state.tabs.every((t) => t.isStarter && !t.dirty && !t.filePath);
+    if (!onlyStarters) return;
+    const docs = collectWorkspaceDocuments(state.folderTree).filter((d) => /\.(r|rmd|qmd)$/i.test(d.name));
+    if (docs.length) {
+      for (const doc of docs.slice(0, 2)) {
+        await openPathSmart(doc.path);
+      }
     }
   }
 
@@ -2423,6 +2671,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     renderFolderTree();
     state.layout.setSidebarOpen('explorer', true);
     applyWorkbenchLayout();
+    await autoOpenWorkspaceStarterFiles();
   }
 
   async function saveFileAction(forceAs = false) {
@@ -2435,24 +2684,40 @@ boxplot(Sepal.Length ~ Species, data = iris,
       return;
     }
     const content = tab.model.getValue();
+    // If tab has no filePath yet, but a workspace folder is open and the file with tab.name already exists inside it, bind it
+    if (!forceAs && !tab.filePath && state.workspaceRoot) {
+      const matchInFolder = collectWorkspaceDocuments(state.folderTree).find((d) => d.name === tab.name);
+      if (matchInFolder && !tab.isStarter) {
+        tab.filePath = matchInFolder.path;
+      }
+    }
     if (!forceAs && tab.filePath) {
       const res = await window.studio.saveFile({ filePath: tab.filePath, content });
       if (res?.ok) {
         tab.dirty = false;
+        tab.isStarter = false;
         renderTabs(tab.groupIndex);
         renderFileGroupsPanel();
+        renderGroupStage(tab.groupIndex);
         showToast(t('toastSaved', tab.name));
       }
     } else {
-      const res = await window.studio.saveFileAs({ defaultName: tab.name, content });
+      const res = await window.studio.saveFileAs({
+        defaultName: tab.name,
+        defaultDir: state.workspaceRoot || undefined,
+        content
+      });
       if (res?.ok) {
         tab.filePath = res.filePath;
         tab.name = res.name;
+        tab.isStarter = false;
         tab.language = detectLanguage(res.name);
         state.monaco.editor.setModelLanguage(tab.model, tab.language);
         tab.dirty = false;
         renderTabs(tab.groupIndex);
         renderFileGroupsPanel();
+        renderGroupStage(tab.groupIndex);
+        if (state.workspaceRoot) await refreshFolderTree();
         showToast(t('toastSaved', tab.name));
       }
     }
@@ -2484,6 +2749,26 @@ boxplot(Sepal.Length ~ Species, data = iris,
         break;
       case 'save-as':
         await saveFileAction(true);
+        break;
+      case 'toggle-autosave': {
+        const nextMode = state.settings.autoSave === 'off' ? 'afterDelay' : 'off';
+        state.settings.autoSave = nextMode;
+        saveSettings(state.settings);
+        showToast(t('toastAutoSaveToggle', nextMode === 'off' ? 'OFF' : 'ON (1.5s)'));
+        break;
+      }
+      case 'toggle-copilot':
+        copilot?.toggleWindow();
+        break;
+      case 'inline-copilot':
+        copilot?.openInlineFix();
+        break;
+      case 'install-t3code':
+        copilot?.toggleWindow(true);
+        await copilot?.installT3Code();
+        break;
+      case 'open-guide':
+        openGuideModal(false);
         break;
       case 'run-selection':
         await executeR(extractCodeToRun(false));
@@ -2697,6 +2982,11 @@ boxplot(Sepal.Length ~ Species, data = iris,
       cmdEntry('toggle-theme', 'toggleTheme'),
       cmdEntry('switch-language', 'switchLanguage'),
       cmdEntry('open-settings', 'openSettings', 'Ctrl+,'),
+      cmdEntry('toggle-copilot', 'copilotToggle', 'Ctrl+Alt+B'),
+      cmdEntry('inline-copilot', 'copilotInlineFix', 'Ctrl+I'),
+      cmdEntry('install-t3code', 'copilotInstallBtn'),
+      cmdEntry('open-guide', 'guideBtnTitle'),
+      cmdEntry('toggle-autosave', 'menuAutoSave'),
       cmdEntry('r-help', 'rHelpMenu', 'F1'),
       cmdEntry('interrupt-r', 'interruptR'),
       cmdEntry('restart-r', 'restartR'),
@@ -2920,7 +3210,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const ed = state.monaco.editor.create($(`editorHost${g}`), {
       theme: state.theme === 'light' ? 'vscode-light' : 'dracula',
       automaticLayout: true,
-      fontSize: 13.5,
+      fontSize: state.editorFontSize,
       fontFamily: 'ui-monospace, "JetBrains Mono", "Fira Code", SFMono-Regular, Menlo, Consolas, monospace',
       minimap: { enabled: true },
       scrollBeyondLastLine: false,
@@ -2951,7 +3241,15 @@ boxplot(Sepal.Length ~ Species, data = iris,
     });
     ed.addCommand(state.monaco.KeyMod.Alt | state.monaco.KeyCode.Minus, () => insertTextAtCursor(ed, ' <- '));
     ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyMod.Shift | state.monaco.KeyCode.KeyM, () => insertTextAtCursor(ed, ' |> '));
+    ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyCode.KeyI, () => copilot?.openInlineFix());
     ed.addCommand(state.monaco.KeyCode.F1, () => openDocsForCursor());
+    ed.addAction({
+      id: 'studio.context.t3InlineFix',
+      label: t('copilotInlineFix'),
+      keybindings: [state.monaco.KeyMod.CtrlCmd | state.monaco.KeyCode.KeyI],
+      contextMenuGroupId: 'navigation',
+      run: () => copilot?.openInlineFix()
+    });
     ed.addAction({
       id: 'studio.context.openRDocs',
       label: t('openDocsBtn'),
@@ -2963,10 +3261,13 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
   // Apply active custom/preset theme to Monaco immediately after editor creation
   applyThemePreset(state.settings.themePreset || 'dracula', state.settings.themeOverrides || {});
+  if (state.uiZoomFactor !== 1 && window.studio?.setUiZoom) {
+    window.studio.setUiZoom(state.uiZoomFactor);
+  }
 
-  // Starter tabs
-  createCodeTab({ name: 'report.Rmd', content: DEFAULT_RMD_DOC, language: 'rmd', dirty: false, groupIndex: 0 });
-  createCodeTab({ name: 'analysis.R', content: DEFAULT_R_SCRIPT, language: 'r', dirty: false, groupIndex: 0 });
+  // Starter tabs (marked isStarter: true so opening a real file or workspace folder replaces them cleanly!)
+  createCodeTab({ name: 'report.Rmd', content: DEFAULT_RMD_DOC, language: 'rmd', dirty: false, groupIndex: 0, isStarter: true });
+  createCodeTab({ name: 'analysis.R', content: DEFAULT_R_SCRIPT, language: 'r', dirty: false, groupIndex: 0, isStarter: true });
 
   // --- Wire Main Process Events ---
   if (hasBridge) {
@@ -3004,6 +3305,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
           renderFolderTree();
           state.layout.setSidebarOpen('explorer', true);
           applyWorkbenchLayout();
+          await autoOpenWorkspaceStarterFiles();
         }
       }
       if (filePath) {
@@ -3048,13 +3350,43 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
     if (!mod) return;
     const key = e.key.toLowerCase();
-    // User keybindings.json: Ctrl+0 zoomReset, Ctrl++/Ctrl+=/Ctrl+Shift++/Ctrl+Shift+= zoomIn, Ctrl+- zoomOut
-    if (!e.altKey && (e.key === '0' || e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_')) {
+    // Ctrl + / Ctrl - / Ctrl 0 (no Shift) -> change ONLY Editor text size
+    // Ctrl + Shift + + / Ctrl + Shift + - / Ctrl + Shift + 0 -> change both Editor and UI zoom factor
+    const isZoomPlus = e.key === '+' || e.key === '=' || e.code === 'Equal' || e.code === 'NumpadAdd';
+    const isZoomMinus = e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract';
+    const isZoomReset = e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0';
+    if (!e.altKey && (isZoomPlus || isZoomMinus || isZoomReset)) {
       e.preventDefault();
-      const curZ = parseFloat(document.documentElement.style.zoom || '1') || 1;
-      const nextZ = e.key === '0' ? 1 : (e.key === '-' || e.key === '_') ? Math.max(0.7, +(curZ - 0.1).toFixed(2)) : Math.min(1.6, +(curZ + 0.1).toFixed(2));
-      document.documentElement.style.zoom = nextZ === 1 ? '' : String(nextZ);
-      state.editors.forEach((ed) => ed?.layout());
+      if (e.shiftKey) {
+        const curZ = state.uiZoomFactor || 1;
+        const nextZ = isZoomReset ? 1 : isZoomMinus ? Math.max(0.7, +(curZ - 0.1).toFixed(2)) : Math.min(1.6, +(curZ + 0.1).toFixed(2));
+        state.uiZoomFactor = nextZ;
+        localStorage.setItem('rcs-ui-zoom-factor', String(nextZ));
+        if (window.studio?.setUiZoom) {
+          window.studio.setUiZoom(nextZ);
+        } else {
+          document.documentElement.style.zoom = nextZ === 1 ? '' : String(nextZ);
+        }
+        state.editors.forEach((ed) => ed?.layout());
+        showToast(`UI + Editor Zoom: ${Math.round(nextZ * 100)}%`);
+      } else {
+        const curF = state.editorFontSize || 13.5;
+        const nextF = isZoomReset ? 13.5 : isZoomMinus ? Math.max(10, +(curF - 1).toFixed(1)) : Math.min(28, +(curF + 1).toFixed(1));
+        state.editorFontSize = nextF;
+        localStorage.setItem('rcs-editor-font-size', String(nextF));
+        state.editors.forEach((ed) => ed?.updateOptions({ fontSize: nextF }));
+        showToast(`Editor Font Size: ${nextF}px`);
+      }
+      return;
+    }
+    if (e.altKey && key === 'b') {
+      e.preventDefault();
+      copilot?.toggleWindow();
+      return;
+    }
+    if (!e.altKey && !e.shiftKey && key === 'i') {
+      e.preventDefault();
+      copilot?.openInlineFix();
       return;
     }
     if (e.altKey && key === 'i') {
@@ -3118,13 +3450,287 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
   });
 
+  // --- Standalone Popout Helpers (Shift+Click opens in a separate window by default) ---
+  async function popoutTabWindow(tab) {
+    if (!tab || !window.studio?.openOutputWindow) return;
+    if (tab.kind === 'table' && tab.tableConfig?.objectName) {
+      await popoutDatasetWindow(tab.tableConfig.objectName);
+      return;
+    }
+    const raw = tab.model?.getValue() || '';
+    const html =
+      tab.language === 'rmd' || tab.language === 'markdown'
+        ? window.StudioMarkdownPreview.renderMarkdown(raw).html
+        : `<pre class="code-highlighted">${window.StudioMarkdownPreview.highlightCode(raw, tab.language || 'r')}</pre>`;
+    await window.studio.openOutputWindow({
+      title: `${tab.name} — R Commander Studio`,
+      sourceLabel: (tab.language || 'FILE').toUpperCase(),
+      htmlContent: html,
+      rawText: raw,
+      isLight: state.theme === 'light'
+    });
+  }
+
+  async function popoutDatasetWindow(objectName) {
+    if (!objectName || !window.studio?.tableGetPage || !window.studio?.openOutputWindow) return;
+    const page = await window.studio.tableGetPage({ name: objectName, source: 'global', page: 1, pageSize: 200 });
+    if (!page?.ok) return;
+    const cols = (page.columns || []).map((c) => `<th>${escapeHtmlText(c.name)} <small style="opacity:.7">(${escapeHtmlText(c.type)})</small></th>`).join('');
+    const rows = (page.rows || [])
+      .map(
+        (r) =>
+          `<tr><td><b>${escapeHtmlText(r.rowName)}</b></td>${(r.values || [])
+            .map((v) => `<td>${v === null ? '<i>NA</i>' : escapeHtmlText(v)}</td>`)
+            .join('')}</tr>`
+      )
+      .join('');
+    const html = `<table><thead><tr><th>#</th>${cols}</tr></thead><tbody>${rows}</tbody></table>`;
+    await window.studio.openOutputWindow({
+      title: `Data Set: ${objectName} (${page.totalRows} x ${page.totalCols}) — R Commander Studio`,
+      sourceLabel: 'Table Viewer',
+      htmlContent: html,
+      rawText: `${objectName} (${page.totalRows} rows, ${page.totalCols} cols)`,
+      isLight: state.theme === 'light'
+    });
+  }
+
+  async function popoutPanelSection(which) {
+    if (!window.studio?.openOutputWindow) return;
+    if (which === 'plots') {
+      if (state.plots.length) await popoutCurrentPlot();
+      return;
+    }
+    if (which === 'console') {
+      await window.studio.openOutputWindow({
+        title: `${t('dockRConsole')} — R Commander Studio`,
+        sourceLabel: 'R Console',
+        htmlContent: `<pre>${$('consoleOut').innerHTML}</pre>`,
+        rawText: $('consoleOut').innerText,
+        isLight: state.theme === 'light'
+      });
+      return;
+    }
+    if (which === 'arf') {
+      await window.studio.openOutputWindow({
+        title: `arf Terminal — R Commander Studio`,
+        sourceLabel: 'arf',
+        htmlContent: `<pre>${$('arfOut').innerHTML}</pre>`,
+        rawText: $('arfOut').innerText,
+        isLight: state.theme === 'light'
+      });
+      return;
+    }
+    if (which === 'help') {
+      await window.studio.openOutputWindow({
+        title: `${t('dockHelp')} — R Commander Studio`,
+        sourceLabel: 'R Help',
+        htmlContent: $('helpContent').innerHTML,
+        rawText: $('helpContent').innerText,
+        isLight: state.theme === 'light'
+      });
+      return;
+    }
+    if (which === 'problems') {
+      await window.studio.openOutputWindow({
+        title: `${t('dockProblems')} — R Commander Studio`,
+        sourceLabel: 'Problems',
+        htmlContent: $('problemsList').innerHTML,
+        rawText: $('problemsList').innerText,
+        isLight: state.theme === 'light'
+      });
+    }
+  }
+
+  // --- Interactive Bilingual User Guide Modal (? button in Activity Bar) ---
+  function buildGuideHtml() {
+    const isEs = getLang() === 'es';
+    if (isEs) {
+      return `
+        <p>Bienvenido a <strong>R Commander Studio</strong>. Toda la interfaz, los <strong>371 diálogos de R Commander &amp; TeachStat</strong> y la ayuda están disponibles en <strong>Español</strong> e <strong>Inglés</strong> (botón <code>ES / EN</code> arriba a la derecha).</p>
+        <div class="guide-grid">
+          <div class="guide-card">
+            <h3>Shift + Clic: Abrir en ventana aparte</h3>
+            <ul>
+              <li>Mantén pulsado <kbd>Shift</kbd> y haz clic en cualquier <strong>gráfica</strong>, <strong>bloque de salida de la consola / arf</strong>, <strong>conjunto de datos</strong>, <strong>pestaña del panel</strong> (<kbd>Consola</kbd>, <kbd>Gráficas</kbd>, <kbd>Ayuda</kbd>) o <strong>archivo</strong> para abrirlo directamente en una <strong>ventana independiente</strong>.</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <h3>Zoom del Editor vs. Zoom de la Interfaz</h3>
+            <ul>
+              <li><kbd>Ctrl +</kbd> y <kbd>Ctrl -</kbd> (<kbd>Ctrl 0</kbd> reinicia): cambia <strong>únicamente el tamaño de letra del editor</strong>.</li>
+              <li><kbd>Ctrl + Shift + +</kbd> y <kbd>Ctrl + Shift + -</kbd>: escala <strong>tanto el editor como toda la interfaz</strong> sin recortar bordes.</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <h3>T3 Code Copilot e Instalador</h3>
+            <ul>
+              <li><kbd>Ctrl + Alt + B</kbd>: abre la ventana de chat de <strong>T3 Code Copilot</strong> con comandos rápidos (<code>/fix</code>, <code>/explain</code>, <code>/plot</code>, <code>/rmd</code>) y botones para aplicar o ejecutar en R.</li>
+              <li><kbd>Ctrl + I</kbd>: abre la barra de corrección rápida en línea dentro del editor.</li>
+              <li>Incluye un <strong>Instalador multiplataforma de T3 Code</strong> (Linux, macOS y Windows con soporte automático de WSL2).</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <h3>Carpetas, Archivos y Autoguardado</h3>
+            <ul>
+              <li>Abre archivos (<kbd>Ctrl + O</kbd>) o carpetas (<kbd>Ctrl + Shift + O</kbd>) desde los iconos de la barra superior o desde el panel lateral <strong>Archivos y Entorno</strong>.</li>
+              <li><kbd>Ctrl + S</kbd> guarda directamente en la carpeta abierta. El <strong>Autoguardado</strong> (configurable en Ajustes y menú Fichero) guarda automáticamente tus cambios.</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <h3>Árbol de R Commander e Instalador CRAN</h3>
+            <ul>
+              <li>En la cabecera de la barra lateral de <strong>R Commander</strong> tienes accesos directos para <strong>Instalar paquetes de CRAN</strong>, <strong>plegar menús automáticamente al elegir</strong> y alternar si los diálogos insertan código en el script.</li>
+            </ul>
+          </div>
+          <div class="guide-card">
+            <h3>Errores (Rojo), Warnings (Amarillo) y Paneles</h3>
+            <ul>
+              <li>Los errores de sintaxis se subrayan en <strong>rojo</strong> y los avisos (warnings) en <strong>amarillo</strong> como en VS Code. En la pestaña <strong>Problemas</strong> puedes activar o desactivar cada uno.</li>
+              <li>Arrastra las cabeceras de las barras laterales o del panel inferior para acoplarlos a la izquierda, derecha o abajo, o pulsa el botón de <strong>Maximizar panel</strong>.</li>
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+    return `
+      <p>Welcome to <strong>R Commander Studio</strong>. The entire IDE, all <strong>371 R Commander &amp; TeachStat dialogs</strong>, and documentation search work in both <strong>English</strong> and <strong>Spanish</strong> (toggle <code>EN / ES</code> in the top bar).</p>
+      <div class="guide-grid">
+        <div class="guide-card">
+          <h3>Shift + Click: Open in Separate Window</h3>
+          <ul>
+            <li>Hold <kbd>Shift</kbd> and click any <strong>plot</strong>, <strong>R Console / arf output block</strong>, <strong>workspace dataset</strong>, <strong>panel tab</strong> (<kbd>Console</kbd>, <kbd>Plots</kbd>, <kbd>Help</kbd>), or <strong>file tab</strong> to pop it out into a <strong>standalone window</strong> by default.</li>
+          </ul>
+        </div>
+        <div class="guide-card">
+          <h3>Editor Text Zoom vs. Full UI Zoom</h3>
+          <ul>
+            <li><kbd>Ctrl +</kbd> and <kbd>Ctrl -</kbd> (<kbd>Ctrl 0</kbd> resets): changes <strong>only the Editor text size</strong>.</li>
+            <li><kbd>Ctrl + Shift + +</kbd> and <kbd>Ctrl + Shift + -</kbd>: scales <strong>both the Editor and the entire UI</strong> cleanly without clipping.</li>
+          </ul>
+        </div>
+        <div class="guide-card">
+          <h3>T3 Code Copilot &amp; Installer Tool</h3>
+          <ul>
+            <li><kbd>Ctrl + Alt + B</kbd>: opens the <strong>T3 Code Copilot</strong> chat window with slash commands (<code>/fix</code>, <code>/explain</code>, <code>/plot</code>, <code>/rmd</code>) and 1-click Apply / Run buttons.</li>
+            <li><kbd>Ctrl + I</kbd>: opens the inline code fix prompt right inside the active editor.</li>
+            <li>Includes a built-in <strong>Cross-Platform T3 Code Installer Tool</strong> (Linux, macOS, and Windows with automatic WSL2 setup).</li>
+          </ul>
+        </div>
+        <div class="guide-card">
+          <h3>Folders, Files &amp; Auto-Save</h3>
+          <ul>
+            <li>Open files (<kbd>Ctrl + O</kbd>) or folders (<kbd>Ctrl + Shift + O</kbd>) from either the Top Bar icons or the <strong>Explorer &amp; Workspace</strong> sidebar.</li>
+            <li><kbd>Ctrl + S</kbd> saves directly in place. <strong>Auto-Save</strong> (configurable in Settings and the File menu) saves your edits automatically.</li>
+          </ul>
+        </div>
+        <div class="guide-card">
+          <h3>R Commander Tree &amp; CRAN Package Installer</h3>
+          <ul>
+            <li>The <strong>R Commander</strong> sidebar header includes 1-click buttons to open the <strong>CRAN Package Installer</strong>, toggle <strong>auto-closing menus after selection</strong>, and switch menu code insertion mode.</li>
+          </ul>
+        </div>
+        <div class="guide-card">
+          <h3>Errors (Red), Warnings (Yellow) &amp; Docking</h3>
+          <ul>
+            <li>Syntax errors are underlined in <strong>red</strong> and R warnings in <strong>yellow</strong> like VS Code. Use the toggles inside the <strong>Problems</strong> tab to hide or show warnings/errors anytime.</li>
+            <li>Drag sidebar or panel headers to dock Left, Right, or Bottom, or click the <strong>Maximize Panel</strong> button.</li>
+          </ul>
+        </div>
+      </div>
+    `;
+  }
+
+  function openGuideModal(popout = false) {
+    const html = buildGuideHtml();
+    if (popout && window.studio?.openOutputWindow) {
+      window.studio.openOutputWindow({
+        title: t('guideTitle'),
+        sourceLabel: 'Guide',
+        htmlContent: html,
+        rawText: '',
+        isLight: state.theme === 'light'
+      });
+      return;
+    }
+    $('guideModalTitle').textContent = t('guideTitle');
+    $('guideBody').innerHTML = html;
+    $('guideBackdrop').hidden = false;
+  }
+
+  $('guideCloseBtn')?.addEventListener('click', () => {
+    $('guideBackdrop').hidden = true;
+  });
+  $('guideOkBtn')?.addEventListener('click', () => {
+    $('guideBackdrop').hidden = true;
+  });
+  $('guidePopoutBtn')?.addEventListener('click', () => {
+    $('guideBackdrop').hidden = true;
+    openGuideModal(true);
+  });
+  $('guideBackdrop')?.addEventListener('click', (e) => {
+    if (e.target === $('guideBackdrop')) $('guideBackdrop').hidden = true;
+  });
+
+  // Initialize T3 Code Copilot (Ctrl+Alt+B Chat Window & Ctrl+I Inline Fix)
+  const copilot = window.StudioT3Copilot
+    ? new window.StudioT3Copilot({
+        getState: () => state,
+        getActiveTab: () => activeTab(),
+        getSelectedCode: () => {
+          const tab = activeTab();
+          if (!tab || tab.kind !== 'code') return '';
+          const ed = state.editors[tab.groupIndex];
+          const sel = ed?.getSelection();
+          return sel && !sel.isEmpty() ? tab.model.getValueInRange(sel) : '';
+        },
+        applyCodeToEditor: (newCode) => {
+          const tab = activeTab();
+          if (!tab || tab.kind !== 'code' || !tab.model) return;
+          const ed = state.editors[tab.groupIndex];
+          const sel = ed?.getSelection();
+          if (sel && !sel.isEmpty()) {
+            ed.executeEdits('t3-copilot', [{ range: sel, text: newCode, forceMoveMarkers: true }]);
+          } else {
+            const pos = ed?.getPosition();
+            if (pos) {
+              const lineRange = new state.monaco.Range(pos.lineNumber, 1, pos.lineNumber, tab.model.getLineMaxColumn(pos.lineNumber));
+              ed.executeEdits('t3-copilot', [{ range: lineRange, text: newCode, forceMoveMarkers: true }]);
+            } else {
+              tab.model.setValue(newCode);
+            }
+          }
+          ed?.focus();
+        },
+        insertCodeAtCursor: (snippet) => {
+          const ed = state.editors[state.focusedGroup];
+          if (ed) insertTextAtCursor(ed, snippet);
+        },
+        runCodeInR: (rCode) => executeR(rCode, { label: 'T3 Code Copilot' }),
+        showToast,
+        openStandaloneWindow: (payload) =>
+          window.studio?.openOutputWindow?.({
+            ...payload,
+            isLight: state.theme === 'light'
+          })
+      })
+    : null;
+
   // --- Wire UI Buttons ---
   $('topSearchTrigger').addEventListener('click', () => palette.open(''));
+  $('btnTopOpenFile')?.addEventListener('click', openFileAction);
+  $('btnTopOpenFolder')?.addEventListener('click', openFolderAction);
+  $('btnTopCopilot')?.addEventListener('click', (e) => {
+    if (e.shiftKey) copilot?.popoutWindow();
+    else copilot?.toggleWindow();
+  });
   $('btnTopLang')?.addEventListener('click', () => handleStudioCommand('switch-language'));
   $('btnRun').addEventListener('click', () => handleStudioCommand('run-selection'));
   $('btnRunAll').addEventListener('click', () => handleStudioCommand('run-all'));
   $('btnInterrupt').addEventListener('click', () => handleStudioCommand('interrupt-r'));
-  $('btnPreview').addEventListener('click', () => handleStudioCommand('toggle-preview'));
+  $('btnPreview').addEventListener('click', (e) => {
+    if (e.shiftKey) $('btnPreviewPopout')?.click();
+    else handleStudioCommand('toggle-preview');
+  });
   $('btnKnit').addEventListener('click', () => handleStudioCommand('knit'));
   $('btnDocsCursor').addEventListener('click', openDocsForCursor);
   $('btnSplit').addEventListener('click', () => handleStudioCommand('toggle-split'));
@@ -3135,8 +3741,19 @@ boxplot(Sepal.Length ~ Species, data = iris,
   // Activity Bar
   $('actExplorer').addEventListener('click', () => handleStudioCommand('toggle-explorer-sidebar'));
   $('actRcmdr').addEventListener('click', () => handleStudioCommand('toggle-rcmdr-sidebar'));
-  $('actPlots').addEventListener('click', () => openPanelTab('plots'));
-  $('actHelp').addEventListener('click', () => openPanelTab('help'));
+  $('actPlots').addEventListener('click', (e) => {
+    if (e.shiftKey) popoutPanelSection('plots');
+    else openPanelTab('plots');
+  });
+  $('actHelp').addEventListener('click', (e) => {
+    if (e.shiftKey) popoutPanelSection('help');
+    else openPanelTab('help');
+  });
+  $('actCopilot')?.addEventListener('click', (e) => {
+    if (e.shiftKey) copilot?.popoutWindow();
+    else copilot?.toggleWindow();
+  });
+  $('actGuide')?.addEventListener('click', (e) => openGuideModal(Boolean(e.shiftKey)));
   $('actTheme').addEventListener('click', () => handleStudioCommand('toggle-theme'));
   $('actSettings').addEventListener('click', () => settingsModal.open());
 
@@ -3203,6 +3820,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
   });
   $('btnNewRQuick').addEventListener('click', () => handleStudioCommand('new-r'));
   $('btnOpenFileQuick').addEventListener('click', () => handleStudioCommand('open'));
+  $('btnExplorerOpenFile')?.addEventListener('click', openFileAction);
   $('btnOpenFolder').addEventListener('click', openFolderAction);
   $('btnExplorerNewFile').addEventListener('click', async () => {
     if (!state.workspaceRoot) return;
@@ -3222,9 +3840,30 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
   });
 
-  // R Commander Search & Collapse
+  // R Commander Search, Header Toggles & Package Installer
   $('rcmdrSearch').addEventListener('input', renderRcmdrTree);
   $('btnRcmdrFocusSearch').addEventListener('click', () => $('rcmdrSearch').focus());
+  $('btnRcmdrInstallPkg')?.addEventListener('click', () => triggerRcmdrCommand('installPackages'));
+  $('btnRcmdrAutoClose')?.addEventListener('click', () => {
+    state.settings.closeMenusAfterChoice = !state.settings.closeMenusAfterChoice;
+    saveSettings(state.settings);
+    applySettingsUI();
+    showToast(`${t('rcmdrCloseMenusToggle')}: ${state.settings.closeMenusAfterChoice ? 'ON' : 'OFF'}`);
+  });
+  $('btnRcmdrMenuAction')?.addEventListener('click', () => {
+    const order = ['both', 'run', 'insert'];
+    const cur = state.settings.menuAction || 'both';
+    const next = order[(order.indexOf(cur) + 1) % order.length];
+    state.settings.menuAction = next;
+    saveSettings(state.settings);
+    applySettingsUI();
+    const labelMap = {
+      both: t('settingsMenuActionBoth'),
+      run: t('settingsMenuActionRun'),
+      insert: t('settingsMenuActionInsert')
+    };
+    showToast(labelMap[next] || next);
+  });
   $('btnRcmdrClear').addEventListener('click', () => {
     $('rcmdrSearch').value = '';
     renderRcmdrTree();
@@ -3234,10 +3873,32 @@ boxplot(Sepal.Length ~ Species, data = iris,
     renderRcmdrTree();
   });
 
-  // Panel tabs & header controls
+  // Panel tabs & header controls (Shift+Click pops out any panel tab into a separate window!)
   for (const btn of document.querySelectorAll('.panel-tab')) {
-    btn.addEventListener('click', () => openPanelTab(btn.dataset.dock));
+    btn.addEventListener('click', (e) => {
+      if (e.shiftKey) {
+        e.preventDefault();
+        popoutPanelSection(btn.dataset.dock);
+        return;
+      }
+      openPanelTab(btn.dataset.dock);
+    });
   }
+  $('btnProblemsToggleErrors')?.addEventListener('click', () => {
+    state.settings.showProblemErrors = state.settings.showProblemErrors === false;
+    saveSettings(state.settings);
+    applySettingsUI();
+  });
+  $('btnProblemsToggleWarnings')?.addEventListener('click', () => {
+    state.settings.showProblemWarnings = state.settings.showProblemWarnings === false;
+    saveSettings(state.settings);
+    applySettingsUI();
+  });
+  $('btnPanelMaximize')?.addEventListener('click', () => {
+    state.panelMaximized = !state.panelMaximized;
+    applyWorkbenchLayout();
+  });
+  $('btnPlotPopout')?.addEventListener('click', popoutCurrentPlot);
   $('btnPanelLimitOutput').addEventListener('click', () => {
     state.settings.limitOutput = !state.settings.limitOutput;
     saveSettings(state.settings);

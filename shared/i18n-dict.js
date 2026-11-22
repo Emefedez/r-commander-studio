@@ -376,7 +376,32 @@
     outPastedToast: 'Output inserted into {0}.',
     outNoWorkspaceDocs: 'No documents found in current workspace folder. Opening file picker...',
     outPickWorkspaceDocTitle: 'Choose a Document in This Workspace',
-    outPickOpenDocTitle: 'Choose an Open Document'
+    outPickOpenDocTitle: 'Choose an Open Document',
+
+    // Auto-Save, R Commander Header Controls, T3 Code Copilot & User Guide
+    menuAutoSave: 'Toggle Auto-Save',
+    settingsAutoSave: 'Auto-Save files on disk',
+    settingsAutoSaveOff: 'Off (manual Ctrl+S)',
+    settingsAutoSaveAfterDelay: 'After delay (1.5s after typing)',
+    settingsAutoSaveOnFocusChange: 'On focus / tab change',
+    settingsAutoSaveOnRun: 'Before running R code',
+    settingsAutoSaveDelayMs: 'Auto-Save delay (ms)',
+    toastAutoSaveToggle: 'Auto-Save: {0}',
+    openFileBtn: 'Open File',
+    rcmdrMenuActionToggle: 'Menu action mode (Run & Insert / Run / Insert)',
+    rcmdrInstallPkgBtn: 'Install CRAN Package(s)...',
+    maximizePanel: 'Maximize / Restore Panel Height',
+    copilotTitle: 'T3 Code Copilot',
+    copilotToggle: 'Toggle T3 Code Copilot Chat (Ctrl+Alt+B)',
+    copilotInlineFix: 'T3 Code Inline Fix (Ctrl+I)',
+    copilotInstallBtn: 'Install / Start T3 Code Backend...',
+    guideBtnTitle: 'Interactive User Guide & Shortcuts (?)',
+    guideTitle: 'R Commander Studio — Interactive Guide',
+    problemsShowErrors: 'Errors',
+    problemsShowWarnings: 'Warnings',
+    problemsFilterHint: 'Click to show or hide errors and warnings in the editor and list',
+    settingsShowProblemErrors: 'Diagnostics: underline & list syntax errors (red)',
+    settingsShowProblemWarnings: 'Diagnostics: underline & list R lint warnings (yellow)'
   };
 
   const ES = {
@@ -748,7 +773,32 @@
     outPastedToast: 'Salida insertada en {0}.',
     outNoWorkspaceDocs: 'No hay documentos en la carpeta de trabajo actual. Abriendo selector...',
     outPickWorkspaceDocTitle: 'Elige un documento de la carpeta de trabajo',
-    outPickOpenDocTitle: 'Elige un documento abierto'
+    outPickOpenDocTitle: 'Elige un documento abierto',
+
+    // Auto-Save, R Commander Header Controls, T3 Code Copilot & User Guide
+    menuAutoSave: 'Activar / desactivar autoguardado',
+    settingsAutoSave: 'Autoguardado de archivos en disco',
+    settingsAutoSaveOff: 'Desactivado (Ctrl+S manual)',
+    settingsAutoSaveAfterDelay: 'Tras pausa (1.5 s después de editar)',
+    settingsAutoSaveOnFocusChange: 'Al cambiar de pestaña o foco',
+    settingsAutoSaveOnRun: 'Antes de ejecutar código R',
+    settingsAutoSaveDelayMs: 'Retardo de autoguardado (ms)',
+    toastAutoSaveToggle: 'Autoguardado: {0}',
+    openFileBtn: 'Abrir archivo',
+    rcmdrMenuActionToggle: 'Modo de acción del menú (Ejecutar e insertar / Ejecutar / Insertar)',
+    rcmdrInstallPkgBtn: 'Instalar paquete(s) de CRAN...',
+    maximizePanel: 'Maximizar / restaurar altura del panel',
+    copilotTitle: 'T3 Code Copilot',
+    copilotToggle: 'Mostrar / ocultar chat T3 Code Copilot (Ctrl+Alt+B)',
+    copilotInlineFix: 'Corrección en línea T3 Code (Ctrl+I)',
+    copilotInstallBtn: 'Instalar / iniciar servicio T3 Code...',
+    guideBtnTitle: 'Guía interactiva de uso y atajos (?)',
+    guideTitle: 'R Commander Studio — Guía de uso',
+    problemsShowErrors: 'Errores',
+    problemsShowWarnings: 'Avisos (Warnings)',
+    problemsFilterHint: 'Pulsa para mostrar u ocultar errores y avisos en el editor y la lista',
+    settingsShowProblemErrors: 'Diagnósticos: subrayar y listar errores de sintaxis (rojo)',
+    settingsShowProblemWarnings: 'Diagnósticos: subrayar y listar avisos de R (amarillo)'
   };
 
   return { en: EN, es: ES };
