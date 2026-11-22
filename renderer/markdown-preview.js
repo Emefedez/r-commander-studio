@@ -72,10 +72,11 @@
         if (isR) {
           const idx = chunks.length;
           chunks.push(code);
+          const playIcon = window.StudioIcons ? window.StudioIcons.svg('play', { size: 12 }) : '';
           parts.push(
             `<div class="md-chunk">` +
               `<div class="md-chunk-bar"><span>${esc(header || '{r}')}</span>` +
-              `<button class="btn-run" data-run-chunk="${idx}">▶ Run Chunk</button></div>` +
+              `<button class="icon-btn" data-run-chunk="${idx}" title="Run Chunk">${playIcon}</button></div>` +
               `<pre><code>${esc(code)}</code></pre>` +
             `</div>`
           );

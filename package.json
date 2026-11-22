@@ -1,16 +1,19 @@
 {
   "name": "r-commander-studio",
   "version": "0.1.0",
-  "description": "Standalone lightweight R + Markdown IDE with Monaco Editor, 371 R Commander dialogs, live diagnostics, SVG plots, and NoteComplete Bridge",
+  "description": "Standalone VS Code-style R + R Markdown IDE with Monaco Editor, 371 R Commander dialogs, R LSP + hover docs, arf & R terminals, interactive Data Viewer, and NoteComplete Bridge",
   "main": "main/index.js",
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/*.test.js",
     "sync-rcmdr": "node tools/sync-rcmdr.mjs",
+    "screenshots": "node tools/capture-screenshots.mjs",
     "dist": "electron-builder",
-    "dist:linux": "electron-builder --linux",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist:linux": "electron-builder --linux --x64 --arm64",
+    "dist:linux:x64": "electron-builder --linux --x64",
+    "dist:linux:arm64": "electron-builder --linux --arm64",
+    "dist:mac": "electron-builder --mac --arm64",
+    "dist:win": "electron-builder --win --x64"
   },
   "keywords": [
     "r",
@@ -20,7 +23,8 @@
     "monaco",
     "electron",
     "notecomplete",
-    "statistics"
+    "statistics",
+    "dracula"
   ],
   "license": "MIT",
   "dependencies": {
@@ -33,12 +37,16 @@
   "build": {
     "appId": "com.notecomplete.r-commander-studio",
     "productName": "R Commander Studio",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist"
     },
+    "icon": "assets/icon.png",
     "files": [
       "main/**/*",
       "renderer/**/*",
+      "shared/**/*",
+      "assets/**/*",
       "vendor/rcmdr/**/*",
       "node_modules/monaco-editor/min/**/*",
       "package.json"
@@ -48,22 +56,45 @@
       "vendor/rcmdr/data/rcmdr-names.txt"
     ],
     "linux": {
+      "icon": "assets/icon.png",
       "target": [
-        "AppImage"
+        {
+          "target": "AppImage",
+          "arch": ["x64", "arm64"]
+        }
       ],
       "category": "Development;Science;Education"
     },
     "mac": {
+      "icon": "assets/icon.png",
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64"]
+        }
       ],
       "category": "public.app-category.developer-tools"
     },
     "win": {
+      "icon": "assets/icon.png",
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }

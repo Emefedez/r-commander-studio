@@ -73,6 +73,7 @@ class NoteCompleteBridge {
     runtime,
     rcmdr,
     onOpenScript,
+    onOpenPath,
     getDatasets,
     bridgeFilePath,
     version = APP_VERSION
@@ -80,6 +81,7 @@ class NoteCompleteBridge {
     this.runtime = runtime;
     this.rcmdr = rcmdr;
     this.onOpenScript = onOpenScript || (() => {});
+    this.onOpenPath = onOpenPath || (() => {});
     this.getDatasets = getDatasets || (() => []);
     this.bridgeFilePath = bridgeFilePath || getBridgeFilePath();
     this.version = version;
@@ -167,7 +169,21 @@ class NoteCompleteBridge {
         const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : 'NoteComplete Script';
         const code = typeof body.code === 'string' ? body.code : '';
         const kind = body.kind === 'rmd' ? 'rmd' : 'r';
-        await Promise.resolve(this.onOpenScript({ title, code, kind }));
+        const payload = { title, code, kind };
+        if (typeof body.filePath === 'string' && body.filePath.trim()) payload.filePath = body.filePath.trim();
+        if (typeof body.folderPath === 'string' && body.folderPath.trim()) payload.folderPath = body.folderPath.trim();
+        await Promise.resolve(this.onOpenScript(payload));
+        return sendJson(res, 200, { ok: true });
+      }
+
+      if (method === 'POST' && url.pathname === '/open-path') {
+        const body = await readJsonBody(req);
+        const filePath = typeof body.filePath === 'string' && body.filePath.trim() ? body.filePath.trim() : undefined;
+        const folderPath = typeof body.folderPath === 'string' && body.folderPath.trim() ? body.folderPath.trim() : undefined;
+        if (!filePath && !folderPath) {
+          return sendJson(res, 400, { ok: false, error: 'filePath or folderPath is required' });
+        }
+        await Promise.resolve(this.onOpenPath({ filePath, folderPath }));
         return sendJson(res, 200, { ok: true });
       }
 

@@ -6,16 +6,50 @@ const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 
 const { RRuntime } = require('./r-runtime');
+const { ArfTerminal } = require('./arf-terminal');
 const { RLanguageServer } = require('./r-lsp');
 const { RcmdrService, report } = require('./rcmdr-service');
 const { NoteCompleteBridge } = require('./bridge');
+const fsService = require('./fs-service');
+const mainI18n = require('./i18n');
 
 let mainWindow = null;
 let runtime = null;
+let arf = null;
 let lsp = null;
 let rcmdr = null;
 let bridge = null;
 let lastSnapshot = { datasets: {}, models: [], hclusts: [], objects: [] };
+let rendererReady = false;
+const pendingOpenPaths = [];
+
+function extractCliTargets(argv, cwd = process.cwd()) {
+  const results = [];
+  const startIdx = app.isPackaged ? 1 : 2;
+  for (const raw of (argv || []).slice(startIdx)) {
+    if (!raw || raw.startsWith('-')) continue;
+    const resolved = path.resolve(cwd, raw);
+    if (!fs.existsSync(resolved)) continue;
+    try {
+      const stat = fs.statSync(resolved);
+      if (stat.isDirectory()) results.push({ folderPath: resolved });
+      else if (stat.isFile()) results.push({ filePath: resolved });
+    } catch {
+      // ignore
+    }
+  }
+  return results;
+}
+
+function dispatchOpenPath(target) {
+  if (!target || (!target.filePath && !target.folderPath)) return;
+  if (rendererReady && mainWindow && !mainWindow.isDestroyed()) {
+    sendToRenderer('bridge:openPath', target);
+    focusMainWindow();
+  } else {
+    pendingOpenPaths.push(target);
+  }
+}
 
 function sendToRenderer(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -30,68 +64,147 @@ function focusMainWindow() {
   mainWindow.focus();
 }
 
-function buildAppMenu() {
+/**
+ * Converts a vendor/rcmdr tree.json node into an Electron native submenu item
+ * so native OS menus (e.g. macOS top bar) stay 100% in sync with the in-window bilingual menu bar.
+ */
+function rcmdrNodesToElectronMenu(nodes, lang) {
+  const out = [];
+  for (const node of nodes || []) {
+    if (node.sep) {
+      out.push({ type: 'separator' });
+      continue;
+    }
+    const label = node.label?.[lang] || node.label?.en || node.id || '';
+    if (node.children) {
+      out.push({
+        label,
+        submenu: rcmdrNodesToElectronMenu(node.children, lang)
+      });
+    } else if (node.id) {
+      out.push({
+        label,
+        click: () => sendToRenderer('menu:rcmdr', node.id)
+      });
+    }
+  }
+  return out;
+}
+
+function buildAppMenu(lang = mainI18n.getLang()) {
+  mainI18n.setLang(lang);
+  const t = mainI18n.t;
+  const rcmdrTree = rcmdr ? rcmdr.getTree(lang) : [];
+  const rcmdrMenuByEn = new Map();
+  for (const node of rcmdrTree) {
+    if (!node.sep && node.children && node.label?.en) {
+      rcmdrMenuByEn.set(node.label.en, node);
+    }
+  }
+
+  const rcmdrSub = (enName) => {
+    const node = rcmdrMenuByEn.get(enName);
+    return node ? rcmdrNodesToElectronMenu(node.children, lang) : [];
+  };
+
   const template = [
     {
-      label: 'File',
+      label: t('menuFile'),
       submenu: [
-        { label: 'New R Script', accelerator: 'CmdOrCtrl+N', click: () => sendToRenderer('menu:command', 'new-r') },
-        { label: 'New R Markdown', accelerator: 'CmdOrCtrl+Shift+N', click: () => sendToRenderer('menu:command', 'new-rmd') },
+        { label: t('newRScript'), accelerator: 'CmdOrCtrl+N', click: () => sendToRenderer('menu:command', 'new-r') },
+        { label: t('newRmdDoc'), accelerator: 'CmdOrCtrl+Shift+N', click: () => sendToRenderer('menu:command', 'new-rmd') },
         { type: 'separator' },
-        { label: 'Open...', accelerator: 'CmdOrCtrl+O', click: () => sendToRenderer('menu:command', 'open') },
-        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => sendToRenderer('menu:command', 'save') },
-        { label: 'Save As...', accelerator: 'CmdOrCtrl+Shift+S', click: () => sendToRenderer('menu:command', 'save-as') },
+        { label: t('openFile'), accelerator: 'CmdOrCtrl+O', click: () => sendToRenderer('menu:command', 'open') },
+        { label: t('openFolder'), accelerator: 'CmdOrCtrl+Shift+O', click: () => sendToRenderer('menu:command', 'open-folder') },
+        { label: t('loadWorkspace'), click: () => sendToRenderer('menu:command', 'load-workspace') },
+        { label: t('loadDatasetFile'), click: () => sendToRenderer('menu:command', 'load-dataset-file') },
         { type: 'separator' },
-        { role: 'quit' }
+        { label: t('save'), accelerator: 'CmdOrCtrl+S', click: () => sendToRenderer('menu:command', 'save') },
+        { label: t('saveAs'), accelerator: 'CmdOrCtrl+Shift+S', click: () => sendToRenderer('menu:command', 'save-as') },
+        { type: 'separator' },
+        ...rcmdrSub('File'),
+        { type: 'separator' },
+        { label: t('quit'), role: 'quit' }
       ]
     },
     {
-      label: 'Edit',
+      label: t('menuEdit'),
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        { label: t('undo'), role: 'undo' },
+        { label: t('redo'), role: 'redo' },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' }
+        { label: t('cut'), role: 'cut' },
+        { label: t('copy'), role: 'copy' },
+        { label: t('paste'), role: 'paste' },
+        { label: t('selectAll'), role: 'selectAll' },
+        { type: 'separator' },
+        ...rcmdrSub('Edit')
       ]
     },
     {
-      label: 'Run',
+      label: t('menuView'),
       submenu: [
-        { label: 'Run Line / Selection', accelerator: 'CmdOrCtrl+Enter', click: () => sendToRenderer('menu:command', 'run-selection') },
-        { label: 'Run All', accelerator: 'CmdOrCtrl+Shift+Enter', click: () => sendToRenderer('menu:command', 'run-all') },
-        { label: 'Knit R Markdown', accelerator: 'CmdOrCtrl+Shift+K', click: () => sendToRenderer('menu:command', 'knit') },
+        { label: t('commandPalette'), accelerator: 'CmdOrCtrl+Shift+P', click: () => sendToRenderer('menu:command', 'command-palette') },
         { type: 'separator' },
-        { label: 'Interrupt R', click: () => sendToRenderer('menu:command', 'interrupt-r') },
-        { label: 'Restart R Session', click: () => sendToRenderer('menu:command', 'restart-r') }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { label: 'Toggle Preview', accelerator: 'CmdOrCtrl+Shift+V', click: () => sendToRenderer('menu:command', 'toggle-preview') },
-        { label: 'Toggle Theme', click: () => sendToRenderer('menu:command', 'toggle-theme') },
+        { label: t('splitEditor'), accelerator: 'CmdOrCtrl+\\', click: () => sendToRenderer('menu:command', 'toggle-split') },
+        { label: t('moveTabOtherGroup'), click: () => sendToRenderer('menu:command', 'move-tab-group') },
+        { label: t('togglePreview'), accelerator: 'CmdOrCtrl+Shift+V', click: () => sendToRenderer('menu:command', 'toggle-preview') },
+        { label: t('toggleDockPosition'), click: () => sendToRenderer('menu:command', 'toggle-dock-position') },
+        { type: 'separator' },
+        { label: t('toggleTheme'), click: () => sendToRenderer('menu:command', 'toggle-theme') },
+        { label: t('switchLanguage'), click: () => sendToRenderer('menu:command', 'switch-language') },
+        { label: t('openSettings'), accelerator: 'CmdOrCtrl+,', click: () => sendToRenderer('menu:command', 'open-settings') },
         { type: 'separator' },
         { role: 'toggleDevTools' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
         { role: 'zoomOut' }
       ]
+    },
+    {
+      label: t('menuRun'),
+      submenu: [
+        { label: t('runSelection'), accelerator: 'CmdOrCtrl+Enter', click: () => sendToRenderer('menu:command', 'run-selection') },
+        { label: t('runAll'), accelerator: 'CmdOrCtrl+Shift+Enter', click: () => sendToRenderer('menu:command', 'run-all') },
+        { label: t('knitRmd'), accelerator: 'CmdOrCtrl+Shift+K', click: () => sendToRenderer('menu:command', 'knit') },
+        { type: 'separator' },
+        { label: t('interruptR'), click: () => sendToRenderer('menu:command', 'interrupt-r') },
+        { label: t('restartR'), click: () => sendToRenderer('menu:command', 'restart-r') },
+        { label: t('clearConsole'), click: () => sendToRenderer('menu:command', 'clear-console') },
+        { label: t('refreshWorkspace'), click: () => sendToRenderer('menu:command', 'refresh-workspace') }
+      ]
+    },
+    { label: t('menuData'), submenu: rcmdrSub('Data') },
+    { label: t('menuStatistics'), submenu: rcmdrSub('Statistics') },
+    { label: t('menuGraphs'), submenu: rcmdrSub('Graphs') },
+    { label: t('menuModels'), submenu: rcmdrSub('Models') },
+    { label: t('menuDistributions'), submenu: rcmdrSub('Distributions') },
+    { label: t('menuBasicStats'), submenu: rcmdrSub('Basic Statistics') },
+    { label: t('menuTools'), submenu: rcmdrSub('Tools') },
+    {
+      label: t('menuHelp'),
+      submenu: [
+        { label: t('rHelpMenu'), click: () => sendToRenderer('menu:command', 'r-help') },
+        { type: 'separator' },
+        ...rcmdrSub('Help')
+      ]
     }
   ];
+
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function createWindow() {
+  const iconPath = path.join(__dirname, '..', 'assets', 'icon.svg');
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 960,
-    minHeight: 620,
+    width: 1460,
+    height: 920,
+    minWidth: 980,
+    minHeight: 640,
     title: 'R Commander Studio',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#f7f8fa',
+    autoHideMenuBar: process.platform !== 'darwin',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -136,32 +249,81 @@ async function pickFileOrDir(field, titleLabel) {
 
 function registerIpc() {
   ipcMain.handle('studio:init', async () => {
+    rendererReady = true;
     const env = await runtime.probeEnvironment();
     const monacoVsDir = path.join(__dirname, '..', 'node_modules', 'monaco-editor', 'min', 'vs');
+    const queued = pendingOpenPaths.splice(0, pendingOpenPaths.length);
     return {
       env,
       bridge: bridge ? { port: bridge.port, protocolVersion: 1 } : null,
-      tree: rcmdr.getTree('en'),
+      tree: rcmdr.getTree(mainI18n.getLang()),
       rcmdrCount: rcmdr.getCatalogSummary().count,
       lspStatus: lsp ? lsp.status : 'fallback',
-      monacoVsUrl: pathToFileURL(monacoVsDir).href
+      monacoVsUrl: pathToFileURL(monacoVsDir).href,
+      pendingOpenPaths: queued
     };
   });
 
-  // --- File operations ---
+  ipcMain.handle('studio:setLanguage', async (_e, lang) => {
+    const clean = lang === 'en' ? 'en' : 'es';
+    mainI18n.setLang(clean);
+    rcmdr.setLanguage(clean);
+    buildAppMenu(clean);
+    return { lang: clean };
+  });
+
+  ipcMain.handle('studio:updateSettings', async (_e, patch) => {
+    return rcmdr.updateSettings(patch || {});
+  });
+
+  // --- File & Workspace Explorer I/O ---
   ipcMain.handle('file:open', async () => {
     const res = await dialog.showOpenDialog(mainWindow, {
-      title: 'Open File',
-      properties: ['openFile'],
+      title: mainI18n.t('openFile'),
+      properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: 'R & Markdown', extensions: ['R', 'r', 'Rmd', 'rmd', 'qmd', 'md', 'csv', 'txt'] },
+        { name: 'R, Markdown & Data', extensions: ['R', 'r', 'Rmd', 'rmd', 'qmd', 'md', 'csv', 'tsv', 'txt', 'RData', 'rda', 'rds', 'xlsx', 'xls'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     });
     if (res.canceled || !res.filePaths.length) return null;
-    const filePath = res.filePaths[0];
-    const content = fs.readFileSync(filePath, 'utf8');
-    return { filePath, name: path.basename(filePath), content };
+    const files = [];
+    for (const filePath of res.filePaths) {
+      const ext = path.extname(filePath).toLowerCase();
+      const isBinaryData = ['.rdata', '.rda', '.rds', '.xlsx', '.xls'].includes(ext);
+      files.push({
+        filePath,
+        name: path.basename(filePath),
+        isBinaryData,
+        content: isBinaryData ? '' : fs.readFileSync(filePath, 'utf8')
+      });
+    }
+    return files;
+  });
+
+  ipcMain.handle('file:openPath', async (_e, filePath) => {
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    const ext = path.extname(filePath).toLowerCase();
+    const isBinaryData = ['.rdata', '.rda', '.rds', '.xlsx', '.xls'].includes(ext);
+    return {
+      filePath,
+      name: path.basename(filePath),
+      isBinaryData,
+      content: isBinaryData ? '' : fs.readFileSync(filePath, 'utf8')
+    };
+  });
+
+  ipcMain.handle('file:openDataFileDialog', async () => {
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: mainI18n.t('loadDatasetFile'),
+      properties: ['openFile'],
+      filters: [
+        { name: 'R Data & Tables', extensions: ['RData', 'rda', 'rds', 'csv', 'tsv', 'xlsx', 'xls'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (res.canceled || !res.filePaths.length) return null;
+    return res.filePaths[0];
   });
 
   ipcMain.handle('file:save', async (_e, { filePath, content }) => {
@@ -172,12 +334,13 @@ function registerIpc() {
 
   ipcMain.handle('file:saveAs', async (_e, { defaultName, content, filters }) => {
     const res = await dialog.showSaveDialog(mainWindow, {
-      title: 'Save File As',
+      title: mainI18n.t('saveAs'),
       defaultPath: defaultName || 'script.R',
       filters: filters || [
         { name: 'R Script', extensions: ['R', 'r'] },
         { name: 'R Markdown', extensions: ['Rmd', 'rmd', 'qmd'] },
         { name: 'Markdown', extensions: ['md'] },
+        { name: 'CSV Table', extensions: ['csv'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     });
@@ -188,7 +351,7 @@ function registerIpc() {
 
   ipcMain.handle('file:saveSvg', async (_e, { svg, defaultName }) => {
     const res = await dialog.showSaveDialog(mainWindow, {
-      title: 'Save Plot as SVG',
+      title: mainI18n.t('plotSaveSvg'),
       defaultPath: defaultName || 'plot.svg',
       filters: [{ name: 'SVG Image', extensions: ['svg'] }]
     });
@@ -197,8 +360,81 @@ function registerIpc() {
     return { ok: true, filePath: res.filePath };
   });
 
+  ipcMain.handle('file:savePlotPng', async (_e, { base64Png, defaultName }) => {
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Plot as PNG',
+      defaultPath: defaultName || 'plot.png',
+      filters: [{ name: 'PNG Image', extensions: ['png'] }]
+    });
+    if (res.canceled || !res.filePath) return null;
+    fs.writeFileSync(res.filePath, Buffer.from(String(base64Png || ''), 'base64'));
+    return { ok: true, filePath: res.filePath };
+  });
+
+  ipcMain.handle('file:savePlotPdf', async (_e, { svg, defaultName }) => {
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Plot as PDF',
+      defaultPath: defaultName || 'plot.pdf',
+      filters: [{ name: 'PDF Document', extensions: ['pdf'] }]
+    });
+    if (res.canceled || !res.filePath) return null;
+    const pdfWin = new BrowserWindow({
+      show: false,
+      width: 900,
+      height: 640,
+      webPreferences: { sandbox: true }
+    });
+    try {
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff;display:grid;place-items:center;width:100vw;height:100vh}svg{max-width:96vw;max-height:96vh;width:auto;height:auto}</style></head><body>${svg}</body></html>`;
+      await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      const pdfBuf = await pdfWin.webContents.printToPDF({
+        printBackground: true,
+        landscape: true,
+        margins: { top: 0.2, bottom: 0.2, left: 0.2, right: 0.2 }
+      });
+      fs.writeFileSync(res.filePath, pdfBuf);
+      return { ok: true, filePath: res.filePath };
+    } finally {
+      pdfWin.destroy();
+    }
+  });
+
   ipcMain.handle('file:browse', async (_e, { mode, type, filters, defaultName, title }) => {
     return pickFileOrDir({ mode, type, filters, def: defaultName }, title);
+  });
+
+  ipcMain.handle('fs:openFolder', async () => {
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: mainI18n.t('openFolder'),
+      properties: ['openDirectory']
+    });
+    if (res.canceled || !res.filePaths.length) return null;
+    const root = res.filePaths[0];
+    return { root, name: path.basename(root), tree: fsService.readDirTree(root, 4) };
+  });
+
+  ipcMain.handle('fs:readDirTree', async (_e, root) => {
+    if (!root || !fs.existsSync(root)) return null;
+    return { root, name: path.basename(root), tree: fsService.readDirTree(root, 4) };
+  });
+
+  ipcMain.handle('fs:createFile', async (_e, { dir, name }) => {
+    const target = path.join(dir, name);
+    return fsService.createFile(target, '');
+  });
+
+  ipcMain.handle('fs:createDir', async (_e, { dir, name }) => {
+    const target = path.join(dir, name);
+    return fsService.createDir(target);
+  });
+
+  ipcMain.handle('fs:rename', async (_e, { oldPath, newName }) => {
+    const newPath = path.join(path.dirname(oldPath), newName);
+    return fsService.renamePath(oldPath, newPath);
+  });
+
+  ipcMain.handle('fs:delete', async (_e, targetPath) => {
+    return fsService.deletePath(targetPath);
   });
 
   ipcMain.handle('shell:openExternal', async (_e, url) => {
@@ -209,7 +445,7 @@ function registerIpc() {
     return false;
   });
 
-  // --- R Runtime ---
+  // --- R Runtime & Table Viewer RPC ---
   ipcMain.handle('r:run', async (_e, opts) => {
     const result = await runtime.runCode(opts.code || '', opts);
     try {
@@ -220,9 +456,21 @@ function registerIpc() {
     return { ...result, snapshot: lastSnapshot };
   });
 
-  ipcMain.handle('r:interrupt', async () => {
-    return { ok: runtime.interrupt() };
+  ipcMain.handle('r:loadDataFile', async (_e, filePath) => {
+    const result = await runtime.loadDataFile(filePath);
+    if (result.ok && result.snapshot) {
+      lastSnapshot = result.snapshot;
+    }
+    return result;
   });
+
+  ipcMain.handle('r:interrupt', async () => ({ ok: runtime.interrupt() }));
+
+  // Interactive arf terminal IPC
+  ipcMain.handle('arf:start', async () => ({ ok: arf ? arf.start() : false, available: Boolean(arf?.available) }));
+  ipcMain.handle('arf:send', async (_e, code) => ({ ok: arf ? arf.send(code) : false }));
+  ipcMain.handle('arf:interrupt', async () => ({ ok: arf ? arf.interrupt() : false }));
+  ipcMain.handle('arf:restart', async () => ({ ok: arf ? arf.restart() : false }));
 
   ipcMain.handle('r:restart', async () => {
     await runtime.restartSession();
@@ -235,42 +483,66 @@ function registerIpc() {
     return lastSnapshot;
   });
 
-  ipcMain.handle('r:query', async (_e, expr) => {
-    return runtime.query(expr);
+  ipcMain.handle('r:query', async (_e, expr) => runtime.query(expr));
+
+  ipcMain.handle('r:knit', async (_e, opts) => runtime.knitRmd(opts));
+
+  ipcMain.handle('r:help', async (_e, topic) => {
+    const clean = String(topic || '').trim();
+    if (!clean) return { ok: false, text: '' };
+    const [maybePkg, maybeFn] = clean.includes('::') ? clean.split('::') : ['', clean];
+    const structured = await runtime.getFunctionHelp(maybeFn || clean, maybePkg);
+    if (structured && structured.ok && structured.fullText) {
+      return structured;
+    }
+    const res = await runtime.runCode(
+      `local({ hs <- utils::help.search(${JSON.stringify(clean)})$matches; if (nrow(hs)) print(head(hs[, c("Package", "Topic", "Title")], 20)) else cat("No R help entries found for:", ${JSON.stringify(clean)}, "\\n") })`,
+      { capturePlots: false, skipHelp: false, limitOutput: false }
+    );
+    return { ok: true, fn: clean, title: `Search: ${clean}`, fullText: res.stdout || res.stderr || '' };
   });
 
-  ipcMain.handle('r:knit', async (_e, opts) => {
-    return runtime.knitRmd(opts);
+  ipcMain.handle('r:fnHelp', async (_e, { fnName, pkg }) => runtime.getFunctionHelp(fnName, pkg));
+
+  // Table Viewer RPC (R objects + CSV/TSV files)
+  ipcMain.handle('table:getPage', async (_e, opts) => runtime.getTablePage(opts));
+  ipcMain.handle('table:colSummary', async (_e, opts) => runtime.getColumnSummary(opts));
+  ipcMain.handle('table:editCell', async (_e, opts) => {
+    const res = await runtime.editTableCell(opts);
+    if (res.ok) lastSnapshot = await runtime.snapshot();
+    return { ...res, snapshot: lastSnapshot };
   });
+  ipcMain.handle('table:addRow', async (_e, opts) => {
+    const res = await runtime.addTableRow(opts);
+    if (res.ok) lastSnapshot = await runtime.snapshot();
+    return { ...res, snapshot: lastSnapshot };
+  });
+  ipcMain.handle('table:addCol', async (_e, opts) => {
+    const res = await runtime.addTableCol(opts);
+    if (res.ok) lastSnapshot = await runtime.snapshot();
+    return { ...res, snapshot: lastSnapshot };
+  });
+  ipcMain.handle('table:exportCsv', async (_e, opts) => runtime.exportTableCsv(opts));
+  ipcMain.handle('table:parseDelimited', async (_e, { text, delimiter }) => fsService.parseDelimited(text, delimiter));
+  ipcMain.handle('table:serializeDelimited', async (_e, { columns, rows, delimiter }) => fsService.serializeDelimited(columns, rows, delimiter));
+  ipcMain.handle('table:toMarkdown', async (_e, { columns, rows }) => fsService.toMarkdownTable(columns, rows));
 
   // --- LSP & Diagnostics ---
-  ipcMain.handle('lsp:didOpen', async (_e, { uri, text, isRmd }) => {
-    return lsp.didOpen(uri, text, { isRmd });
-  });
-
-  ipcMain.handle('lsp:didChange', async (_e, { uri, text, isRmd }) => {
-    return lsp.didChange(uri, text, { isRmd });
-  });
-
+  ipcMain.handle('lsp:didOpen', async (_e, { uri, text, isRmd }) => lsp.didOpen(uri, text, { isRmd }));
+  ipcMain.handle('lsp:didChange', async (_e, { uri, text, isRmd }) => lsp.didChange(uri, text, { isRmd }));
   ipcMain.handle('lsp:didClose', async (_e, { uri }) => {
     lsp.didClose(uri);
     return true;
   });
-
-  ipcMain.handle('lsp:hover', async (_e, { uri, line, character }) => {
-    return lsp.hover(uri, line, character);
-  });
-
-  ipcMain.handle('lsp:completion', async (_e, { uri, line, character }) => {
-    return lsp.completion(uri, line, character);
-  });
+  ipcMain.handle('lsp:hover', async (_e, { uri, line, character }) => lsp.hover(uri, line, character));
+  ipcMain.handle('lsp:completion', async (_e, { uri, line, character }) => lsp.completion(uri, line, character));
 
   // --- R Commander Service ---
-  ipcMain.handle('rcmdr:getTree', async (_e, lang) => {
-    return rcmdr.getTree(lang);
-  });
+  ipcMain.handle('rcmdr:getTree', async (_e, lang) => rcmdr.getTree(lang));
+  ipcMain.handle('rcmdr:searchCommands', async (_e, { query, lang }) => rcmdr.searchCommands(query, lang));
+  ipcMain.handle('rcmdr:menuHover', async (_e, { fnName, lang }) => rcmdr.getMenuHover(fnName, lang));
 
-  ipcMain.handle('rcmdr:openCommand', async (_e, { id, activeDataset, activeModel, lang }) => {
+  ipcMain.handle('rcmdr:openCommand', async (_e, { id, activeDataset, activeModel, lang, settings }) => {
     try {
       lastSnapshot = await runtime.snapshot();
     } catch {
@@ -281,6 +553,7 @@ function registerIpc() {
       activeDataset,
       activeModel,
       lang,
+      settings,
       queryFn: (expr, timeout) => runtime.query(expr, timeout)
     });
   });
@@ -329,10 +602,14 @@ function registerIpc() {
 
 async function bootServices() {
   runtime = new RRuntime();
+  arf = new ArfTerminal();
   rcmdr = new RcmdrService();
   lsp = new RLanguageServer({ rscriptPath: runtime.rscriptPath });
 
   runtime.on('output', (payload) => sendToRenderer('r:output', payload));
+  runtime.on('viewTable', (payload) => sendToRenderer('r:viewTable', payload));
+  arf.on('output', (payload) => sendToRenderer('arf:output', payload));
+  arf.on('status', (status) => sendToRenderer('arf:status', status));
   lsp.on('diagnostics', (payload) => sendToRenderer('lsp:diagnostics', payload));
   lsp.on('status', (status) => sendToRenderer('lsp:status', status));
 
@@ -340,14 +617,21 @@ async function bootServices() {
     runtime,
     rcmdr,
     getDatasets: () => Object.keys(lastSnapshot?.datasets || {}),
-    onOpenScript: ({ title, code, kind }) => {
-      sendToRenderer('bridge:openScript', { title, code, kind });
-      focusMainWindow();
+    onOpenScript: ({ title, code, kind, filePath, folderPath }) => {
+      if (folderPath) dispatchOpenPath({ folderPath });
+      if (filePath && !code) {
+        dispatchOpenPath({ filePath });
+      } else {
+        sendToRenderer('bridge:openScript', { title, code, kind, filePath });
+        focusMainWindow();
+      }
+    },
+    onOpenPath: ({ filePath, folderPath }) => {
+      dispatchOpenPath({ filePath, folderPath });
     }
   });
 
   await bridge.start();
-  // Kick off background R session & LSP startup without blocking UI
   runtime.ensureSession().catch(() => {});
   lsp.start().catch(() => {});
 }
@@ -371,18 +655,37 @@ async function shutdownServices() {
   } catch {
     // ignore
   }
+  try {
+    if (arf) arf.stop();
+  } catch {
+    // ignore
+  }
 }
 
-app.whenReady().then(async () => {
-  buildAppMenu();
-  await bootServices();
-  registerIpc();
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, commandLine, workingDirectory) => {
+    const targets = extractCliTargets(commandLine, workingDirectory);
+    for (const target of targets) dispatchOpenPath(target);
+    focusMainWindow();
   });
-});
+
+  app.whenReady().then(async () => {
+    for (const target of extractCliTargets(process.argv, process.cwd())) {
+      pendingOpenPaths.push(target);
+    }
+    await bootServices();
+    buildAppMenu(mainI18n.getLang());
+    registerIpc();
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on('before-quit', async (event) => {
   if (!shuttingDown) {

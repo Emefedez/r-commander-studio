@@ -84,11 +84,13 @@
       });
     }
 
-    open(payload, onDeliver) {
+    open(payload, onDeliver, options = {}) {
       this.close(true);
       this.sessionId = payload.sessionId;
       this.strings = payload.strings || {};
       this.onDeliver = onDeliver;
+      this.stepMode = Boolean(options.stepMode);
+      this.stepIndex = 0;
       this.dirty = {};
       this.busy = false;
 
@@ -98,9 +100,9 @@
 
       this.btnReset.textContent = this.strings.reset || 'Reset';
       this.btnCancel.textContent = this.strings.cancel || 'Cancel';
-      this.btnInsert.textContent = this.strings.insert || 'Insert in Script';
-      this.btnRun.textContent = `▶ ${this.strings.run || 'Run'}`;
-      this.btnBoth.textContent = `▶ ${this.strings.runAndInsert || 'Run & Insert'}`;
+      this.btnInsert.textContent = this.strings.insert || 'Insert';
+      this.btnRun.textContent = this.strings.run || 'Run';
+      this.btnBoth.textContent = this.strings.runAndInsert || 'OK';
 
       // Dataset switcher if multiple datasets exist
       this.dsRow.textContent = '';

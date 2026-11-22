@@ -30,6 +30,7 @@ const filesToCopy = [
   'lib/report.js',
   'data/tree.json',
   'data/commands.json',
+  'data/functions.json',
   'data/rcmdr-names.txt',
   'i18n/es.json',
   'runner.R'

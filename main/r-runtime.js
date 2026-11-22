@@ -206,6 +206,7 @@ class RRuntime extends EventEmitter {
     this.cwd = options.cwd || process.cwd();
 
     this._envCache = null;
+    this._fnHelpCache = new Map();
     this._proc = null;
     this._ready = false;
     this._queue = [];
@@ -276,7 +277,8 @@ for (i in seq_along(pkgs)) {
   }
 
   /**
-   * Persistent interactive R session powered by a clean command-loop harness sourcing vendor/rcmdr/runner.R.
+   * Persistent interactive R session powered by a clean command-loop harness sourcing vendor/rcmdr/runner.R,
+   * with hooked utils::View() for automatic Table Viewer integration and rich table RPC helpers.
    */
   async ensureSession() {
     if (this._proc && !this._proc.killed && this._ready) return;
@@ -300,6 +302,218 @@ if (file.exists(${JSON.stringify(runnerPath)})) {
   if ("R Play" %in% search()) detach("R Play", character.only = TRUE)
   e <- attach(NULL, name = "R Play")
   sys.source(${JSON.stringify(runnerPath)}, envir = e)
+  # Install Studio table helpers & View() hook inside "R Play" search entry
+  e$.rcs_view_cache <- new.env(parent = emptyenv())
+  e$.rcs_view_seq <- 0L
+  e$.rcs_to_df <- function(x) {
+    if (is.data.frame(x)) return(x)
+    if (is.matrix(x) || is.table(x)) return(as.data.frame(x, stringsAsFactors = FALSE))
+    if (is.atomic(x)) return(data.frame(value = x, stringsAsFactors = FALSE))
+    tryCatch(as.data.frame(x, stringsAsFactors = FALSE), error = function(err) {
+      data.frame(summary = utils::capture.output(utils::str(x)), stringsAsFactors = FALSE)
+    })
+  }
+  e$.rcs_resolve_table <- function(name, source = "global") {
+    if (identical(source, "cache")) {
+      if (!exists(name, envir = e$.rcs_view_cache, inherits = FALSE)) stop("Cached table not found: ", name)
+      return(e$.rcs_to_df(get(name, envir = e$.rcs_view_cache, inherits = FALSE)))
+    }
+    if (!exists(name, envir = globalenv(), inherits = TRUE)) stop("Object not found: ", name)
+    e$.rcs_to_df(get(name, envir = globalenv(), inherits = TRUE))
+  }
+  e$.rcs_col_type <- function(x) {
+    if (is.ordered(x)) return(paste0("Ord(", nlevels(x), ")"))
+    if (is.factor(x)) return(paste0("Factor(", nlevels(x), ")"))
+    if (inherits(x, "Date")) return("Date")
+    if (inherits(x, "POSIXt")) return("POSIXt")
+    if (is.integer(x)) return("int")
+    if (is.numeric(x)) return("num")
+    if (is.logical(x)) return("logi")
+    if (is.character(x)) return("chr")
+    class(x)[1L]
+  }
+  e$.rcs_table_page <- function(name, source = "global", page = 1L, page_size = 100L, sort_col = "", sort_dir = "asc", filter = "") {
+    df <- e$.rcs_resolve_table(name, source)
+    total_rows <- nrow(df)
+    total_cols <- ncol(df)
+    rn <- rownames(df)
+    if (is.null(rn)) rn <- as.character(seq_len(total_rows))
+    row_indices <- seq_len(total_rows)
+    if (nzchar(filter) && total_rows > 0L && total_cols > 0L) {
+      q <- tolower(filter)
+      keep <- grepl(q, tolower(rn), fixed = TRUE)
+      for (j in seq_len(total_cols)) {
+        col_txt <- tolower(as.character(df[[j]]))
+        col_txt[is.na(col_txt)] <- "na"
+        keep <- keep | grepl(q, col_txt, fixed = TRUE)
+      }
+      row_indices <- row_indices[keep]
+    }
+    filtered_rows <- length(row_indices)
+    if (nzchar(sort_col) && sort_col %in% names(df) && filtered_rows > 1L) {
+      vec <- df[[sort_col]][row_indices]
+      ord <- order(vec, decreasing = identical(sort_dir, "desc"), na.last = TRUE)
+      row_indices <- row_indices[ord]
+    }
+    page <- max(1L, as.integer(page))
+    page_size <- max(1L, min(1000L, as.integer(page_size)))
+    start_idx <- (page - 1L) * page_size + 1L
+    end_idx <- min(filtered_rows, page * page_size)
+    slice_idx <- if (filtered_rows > 0L && start_idx <= filtered_rows) row_indices[seq.int(start_idx, end_idx)] else integer()
+    cols_meta <- lapply(names(df), function(cn) {
+      x <- df[[cn]]
+      list(name = cn, type = e$.rcs_col_type(x), naCount = sum(is.na(x)))
+    })
+    rows_out <- lapply(slice_idx, function(ri) {
+      vals <- lapply(seq_len(total_cols), function(j) {
+        v <- df[[j]][[ri]]
+        if (is.na(v)) NULL else as.character(v)
+      })
+      list(rowIndex = ri, rowName = rn[[ri]], values = vals)
+    })
+    editable <- identical(source, "global") && exists(name, envir = globalenv(), inherits = FALSE) && is.data.frame(get(name, envir = globalenv()))
+    list(
+      ok = TRUE,
+      name = name,
+      source = source,
+      editable = editable,
+      totalRows = total_rows,
+      filteredRows = filtered_rows,
+      totalCols = total_cols,
+      page = page,
+      pageSize = page_size,
+      columns = cols_meta,
+      rows = rows_out
+    )
+  }
+  e$.rcs_col_summary <- function(name, source = "global", col) {
+    df <- e$.rcs_resolve_table(name, source)
+    if (!col %in% names(df)) stop("Column not found: ", col)
+    x <- df[[col]]
+    na_count <- sum(is.na(x))
+    n_total <- length(x)
+    valid <- x[!is.na(x)]
+    if (is.numeric(x)) {
+      if (!length(valid)) {
+        return(list(ok = TRUE, col = col, kind = "numeric", type = e$.rcs_col_type(x), n = n_total, naCount = na_count))
+      }
+      qs <- as.numeric(stats::quantile(valid, probs = c(0, 0.25, 0.5, 0.75, 1), names = FALSE))
+      return(list(
+        ok = TRUE, col = col, kind = "numeric", type = e$.rcs_col_type(x),
+        n = n_total, naCount = na_count,
+        min = qs[1], q1 = qs[2], median = qs[3], mean = mean(valid),
+        q3 = qs[4], max = qs[5], sd = if (length(valid) > 1L) stats::sd(valid) else 0
+      ))
+    }
+    tab <- sort(table(as.character(valid)), decreasing = TRUE)
+    top_n <- head(tab, 6L)
+    top_levels <- lapply(names(top_n), function(k) list(label = k, count = as.integer(top_n[[k]])))
+    list(
+      ok = TRUE, col = col, kind = "categorical", type = e$.rcs_col_type(x),
+      n = n_total, naCount = na_count, nUnique = length(tab), topLevels = top_levels
+    )
+  }
+  e$.rcs_edit_cell <- function(name, row_idx, col_name, raw_val) {
+    if (!exists(name, envir = globalenv(), inherits = FALSE)) stop("Data frame not found: ", name)
+    df <- get(name, envir = globalenv())
+    if (!is.data.frame(df)) stop("Object is not a data.frame: ", name)
+    if (!col_name %in% names(df)) stop("Column not found: ", col_name)
+    ri <- as.integer(row_idx)
+    if (is.na(ri) || ri < 1L || ri > nrow(df)) stop("Row index out of range")
+    col <- df[[col_name]]
+    is_na <- is.null(raw_val) || identical(trimws(as.character(raw_val)), "") || identical(trimws(as.character(raw_val)), "NA")
+    if (is_na) {
+      col[ri] <- NA
+    } else if (is.factor(col)) {
+      s <- as.character(raw_val)
+      if (!s %in% levels(col)) levels(col) <- c(levels(col), s)
+      col[ri] <- s
+    } else if (is.integer(col)) {
+      v <- suppressWarnings(as.integer(raw_val))
+      if (is.na(v)) v <- suppressWarnings(as.numeric(raw_val))
+      if (is.na(v)) stop("Invalid integer value: ", raw_val)
+      col[ri] <- v
+    } else if (is.numeric(col)) {
+      v <- suppressWarnings(as.numeric(raw_val))
+      if (is.na(v)) stop("Invalid numeric value: ", raw_val)
+      col[ri] <- v
+    } else if (is.logical(col)) {
+      v <- as.logical(toupper(trimws(as.character(raw_val))))
+      if (is.na(v)) stop("Invalid logical value (use TRUE or FALSE)")
+      col[ri] <- v
+    } else if (inherits(col, "Date")) {
+      col[ri] <- as.Date(raw_val)
+    } else {
+      col[ri] <- as.character(raw_val)
+    }
+    df[[col_name]] <- col
+    assign(name, df, envir = globalenv())
+    list(ok = TRUE, name = name, rowIndex = ri, colName = col_name, value = if (is.na(df[[col_name]][ri])) NULL else as.character(df[[col_name]][ri]))
+  }
+  e$.rcs_add_row <- function(name) {
+    if (!exists(name, envir = globalenv(), inherits = FALSE)) stop("Data frame not found: ", name)
+    df <- get(name, envir = globalenv())
+    if (!is.data.frame(df)) stop("Object is not a data.frame: ", name)
+    new_row <- lapply(df, function(col) {
+      if (is.factor(col)) factor(NA, levels = levels(col), ordered = is.ordered(col))
+      else if (is.integer(col)) NA_integer_
+      else if (is.numeric(col)) NA_real_
+      else if (is.logical(col)) NA
+      else if (inherits(col, "Date")) as.Date(NA)
+      else NA_character_
+    })
+    df <- rbind(df, as.data.frame(new_row, stringsAsFactors = FALSE))
+    assign(name, df, envir = globalenv())
+    list(ok = TRUE, name = name, totalRows = nrow(df))
+  }
+  e$.rcs_add_col <- function(name, col_name, default_val = "NA") {
+    if (!exists(name, envir = globalenv(), inherits = FALSE)) stop("Data frame not found: ", name)
+    df <- get(name, envir = globalenv())
+    if (!is.data.frame(df)) stop("Object is not a data.frame: ", name)
+    col_name <- make.names(trimws(as.character(col_name)))
+    if (!nzchar(col_name)) stop("Invalid column name")
+    dv <- trimws(as.character(default_val))
+    if (!nzchar(dv) || identical(dv, "NA")) {
+      vec <- rep(NA_real_, nrow(df))
+    } else if (!is.na(suppressWarnings(as.numeric(dv)))) {
+      vec <- rep(as.numeric(dv), nrow(df))
+    } else if (toupper(dv) %in% c("TRUE", "FALSE")) {
+      vec <- rep(as.logical(toupper(dv)), nrow(df))
+    } else {
+      vec <- rep(dv, nrow(df))
+    }
+    df[[col_name]] <- vec
+    assign(name, df, envir = globalenv())
+    list(ok = TRUE, name = name, colName = col_name, totalCols = ncol(df))
+  }
+
+  # Override utils::View and attach directly in "R Play" so View(x) ALWAYS opens Studio Table Viewer!
+  studio_view <- function(x, title) {
+    expr <- substitute(x)
+    if (missing(title)) title <- paste(deparse(expr), collapse = " ")
+    sym_name <- if (is.symbol(expr)) as.character(expr) else NULL
+    if (!is.null(sym_name) && exists(sym_name, envir = globalenv(), inherits = FALSE)) {
+      payload <- as.character(jsonlite::toJSON(list(name = sym_name, title = as.character(title)[1L], source = "global"), auto_unbox = TRUE))
+    } else {
+      e$.rcs_view_seq <- e$.rcs_view_seq + 1L
+      cid <- paste0(".view_", e$.rcs_view_seq)
+      assign(cid, e$.rcs_to_df(x), envir = e$.rcs_view_cache)
+      payload <- as.character(jsonlite::toJSON(list(name = cid, title = as.character(title)[1L], source = "cache"), auto_unbox = TRUE))
+    }
+    cat("\\n__RCS_VIEW__", payload, "__RCS_VIEW_END__\\n", sep = "")
+    flush.console()
+    invisible(NULL)
+  }
+  assign("View", studio_view, envir = e)
+  assign("patch_view", function() invisible(NULL), envir = e)
+  for (env in Filter(Negate(is.null), list(asNamespace("utils"), if ("package:utils" %in% search()) as.environment("package:utils")))) {
+    try({
+      locked <- bindingIsLocked("View", env)
+      if (locked) unlockBinding("View", env)
+      assign("View", studio_view, envir = env)
+      if (locked) lockBinding("View", env)
+    }, silent = TRUE)
+  }
 }
 con <- file("stdin", open = "r")
 cat("__RCS_READY__\\n")
@@ -377,13 +591,25 @@ repeat {
     this.emit('ready');
   }
 
+  _extractViewEvents(text) {
+    return text.replace(/\r?\n?__RCS_VIEW__([\s\S]*?)__RCS_VIEW_END__\r?\n?/g, (_match, jsonStr) => {
+      try {
+        const payload = JSON.parse(jsonStr);
+        this.emit('viewTable', payload);
+      } catch {
+        // ignore malformed view payload
+      }
+      return '';
+    });
+  }
+
   _handleStdout(text) {
     this._stdoutBuf += text;
     if (!this._activeJob) return;
     const marker = `__RCS_DONE__${this._activeJob.token}`;
     const idx = this._stdoutBuf.indexOf(marker);
     if (idx !== -1) {
-      const before = this._stdoutBuf.slice(0, idx);
+      const before = this._extractViewEvents(this._stdoutBuf.slice(0, idx));
       const afterMarker = this._stdoutBuf.slice(idx + marker.length).replace(/^\r?\n/, '');
       this._stdoutBuf = afterMarker;
       if (before && this._activeJob.stream) {
@@ -398,13 +624,20 @@ repeat {
       job.resolve({ stdout: job.stdout, stderr: job.stderr });
       this._drainQueue();
     } else {
-      // Stream safely keeping tail in case marker spans chunks
-      const safeLen = Math.max(0, this._stdoutBuf.length - (marker.length + 8));
+      const viewStart = this._stdoutBuf.indexOf('__RCS_VIEW__');
+      if (viewStart !== -1 && !this._stdoutBuf.includes('__RCS_VIEW_END__', viewStart)) {
+        return;
+      }
+      let safeLen = Math.max(0, this._stdoutBuf.length - (marker.length + 24));
+      if (viewStart !== -1 && safeLen > viewStart) {
+        const viewEnd = this._stdoutBuf.indexOf('__RCS_VIEW_END__', viewStart);
+        safeLen = viewEnd !== -1 ? viewEnd + '__RCS_VIEW_END__'.length : viewStart;
+      }
       if (safeLen > 0) {
-        const emitChunk = this._stdoutBuf.slice(0, safeLen);
+        const emitChunk = this._extractViewEvents(this._stdoutBuf.slice(0, safeLen));
         this._stdoutBuf = this._stdoutBuf.slice(safeLen);
         this._activeJob.stdout += emitChunk;
-        if (this._activeJob.stream) {
+        if (emitChunk && this._activeJob.stream) {
           this.emit('output', { stream: 'stdout', text: emitChunk });
         }
       }
@@ -494,8 +727,14 @@ repeat {
       plotWidth = 640,
       plotHeight = 440,
       limitOutput = false,
-      maxOutputItems = 200,
+      maxOutputItems = 24,
       skipHelp = true,
+      skipCommands = [],
+      syntaxColors = true,
+      fixedNotation = false,
+      loadRcmdrFunctions = true,
+      rcmdrPlugins = [],
+      quiet = true,
       timeoutMs = 120000
     } = {}
   ) {
@@ -504,7 +743,16 @@ repeat {
     const wIn = Math.max(1.5, Number(plotWidth || 640) / 72).toFixed(3);
     const hIn = Math.max(1.5, Number(plotHeight || 440) / 72).toFixed(3);
     const pkgsVec = reqPkgs.length ? `c(${reqPkgs.map((p) => JSON.stringify(p)).join(', ')})` : 'character()';
+    const skipVec =
+      Array.isArray(skipCommands) && skipCommands.length
+        ? `c(${skipCommands.map((c) => JSON.stringify(String(c))).join(', ')})`
+        : 'character()';
+    const pluginsVec =
+      Array.isArray(rcmdrPlugins) && rcmdrPlugins.length
+        ? `c(${rcmdrPlugins.map((p) => JSON.stringify(String(p))).join(', ')})`
+        : 'character()';
     const namesPath = JSON.stringify(this.rcmdrNamesPath);
+    const maxItems = Math.max(1, Math.min(1000000, Number.isInteger(Number(maxOutputItems)) ? Number(maxOutputItems) : 24));
 
     const openDeviceSnippet = capturePlots
       ? `
@@ -526,22 +774,28 @@ on.exit({
 `
       : '';
 
+    const attachSnippet = loadRcmdrFunctions
+      ? `if (exists("attach_rcmdr_if_used")) {
+    tryCatch(attach_rcmdr_if_used(.rcs_code, ${namesPath}, ${pluginsVec}), error = function(e) NULL)
+  }`
+      : '';
+
     const jobScript = `
 local({
   ${openDeviceSnippet}
   .rcs_code <- ${rawRString(code)}
-  if (exists("attach_rcmdr_if_used")) {
-    tryCatch(attach_rcmdr_if_used(.rcs_code, ${namesPath}), error = function(e) NULL)
-  }
+  ${attachSnippet}
   if (exists("run_code")) {
     run_code(
       .rcs_code,
       skip_help = ${skipHelp ? 'TRUE' : 'FALSE'},
+      skip_commands = ${skipVec},
       limit_output = ${limitOutput ? 'TRUE' : 'FALSE'},
-      max_output_items = ${Number(maxOutputItems) || 200}L,
+      max_output_items = ${maxItems}L,
       require = ${pkgsVec},
-      quiet = TRUE,
-      syntax_colors = FALSE
+      quiet = ${quiet ? 'TRUE' : 'FALSE'},
+      syntax_colors = ${syntaxColors ? 'TRUE' : 'FALSE'},
+      fixed_notation = ${fixedNotation ? 'TRUE' : 'FALSE'}
     )
   } else {
     exprs <- parse(text = .rcs_code, keep.source = TRUE)
@@ -592,6 +846,129 @@ local({
     }
   }
 
+  async _jsonRpc(rExpr, timeoutMs = 15000) {
+    const outFile = path.join(os.tmpdir(), `rcs-json-${process.pid}-${crypto.randomBytes(6).toString('hex')}.json`);
+    const jobScript = `
+local({
+  .res <- tryCatch(${rExpr}, error = function(e) list(ok = FALSE, error = conditionMessage(e)))
+  writeLines(enc2utf8(jsonlite::toJSON(.res, auto_unbox = TRUE, null = "null", na = "null")), ${JSON.stringify(outFile)}, useBytes = TRUE)
+})
+`;
+    try {
+      await this._enqueueJob(jobScript, { timeoutMs, stream: false });
+      if (!fs.existsSync(outFile)) return { ok: false, error: 'No response from R session' };
+      return JSON.parse(fs.readFileSync(outFile, 'utf8'));
+    } catch (err) {
+      return { ok: false, error: err.message };
+    } finally {
+      try {
+        fs.unlinkSync(outFile);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  async getTablePage({ name, source = 'global', page = 1, pageSize = 100, sortCol = '', sortDir = 'asc', filter = '' } = {}) {
+    const expr = `.rcs_table_page(${JSON.stringify(String(name || ''))}, ${JSON.stringify(String(source || 'global'))}, ${Number(page) || 1}L, ${Number(pageSize) || 100}L, ${JSON.stringify(String(sortCol || ''))}, ${JSON.stringify(sortDir === 'desc' ? 'desc' : 'asc')}, ${rawRString(filter || '')})`;
+    return this._jsonRpc(expr, 15000);
+  }
+
+  async getColumnSummary({ name, source = 'global', col } = {}) {
+    const expr = `.rcs_col_summary(${JSON.stringify(String(name || ''))}, ${JSON.stringify(String(source || 'global'))}, ${JSON.stringify(String(col || ''))})`;
+    return this._jsonRpc(expr, 15000);
+  }
+
+  async editTableCell({ name, rowIndex, colName, value } = {}) {
+    const valArg = value === null || value === undefined ? 'NULL' : rawRString(String(value));
+    const expr = `.rcs_edit_cell(${JSON.stringify(String(name || ''))}, ${Number(rowIndex) || 1}L, ${JSON.stringify(String(colName || ''))}, ${valArg})`;
+    return this._jsonRpc(expr, 15000);
+  }
+
+  async addTableRow({ name } = {}) {
+    const expr = `.rcs_add_row(${JSON.stringify(String(name || ''))})`;
+    return this._jsonRpc(expr, 15000);
+  }
+
+  async addTableCol({ name, colName, defaultValue = 'NA' } = {}) {
+    const expr = `.rcs_add_col(${JSON.stringify(String(name || ''))}, ${JSON.stringify(String(colName || ''))}, ${rawRString(String(defaultValue ?? 'NA'))})`;
+    return this._jsonRpc(expr, 15000);
+  }
+
+  async exportTableCsv({ name, source = 'global' } = {}) {
+    const outFile = path.join(os.tmpdir(), `rcs-csv-${process.pid}-${crypto.randomBytes(6).toString('hex')}.csv`);
+    const jobScript = `
+local({
+  df <- .rcs_resolve_table(${JSON.stringify(String(name || ''))}, ${JSON.stringify(String(source || 'global'))})
+  utils::write.csv(df, file = ${JSON.stringify(outFile)}, row.names = FALSE, fileEncoding = "UTF-8")
+})
+`;
+    try {
+      await this._enqueueJob(jobScript, { timeoutMs: 20000, stream: false });
+      if (!fs.existsSync(outFile)) return { ok: false, error: 'Failed to export CSV' };
+      return { ok: true, csv: fs.readFileSync(outFile, 'utf8') };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    } finally {
+      try {
+        fs.unlinkSync(outFile);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  /**
+   * Loads .RData, .rda, .rds, .csv, .tsv, or .xlsx/.xls directly into the persistent R session,
+   * returning loaded object names, newly available data frames, and refreshed workspace snapshot.
+   */
+  async loadDataFile(filePath) {
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { ok: false, error: `File not found: ${filePath}` };
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    const rawStem = path.basename(filePath, ext).replace(/[^A-Za-z0-9._]/g, '_');
+    const objName = /^[A-Za-z.]/.test(rawStem) ? rawStem : `data_${rawStem}`;
+
+    let expr;
+    if (ext === '.rdata' || ext === '.rda') {
+      expr = `local({ .loaded <- load(${JSON.stringify(filePath)}, envir = globalenv()); list(ok = TRUE, objects = as.character(.loaded)) })`;
+    } else if (ext === '.rds') {
+      expr = `local({ assign(${JSON.stringify(objName)}, readRDS(${JSON.stringify(filePath)}), envir = globalenv()); list(ok = TRUE, objects = ${JSON.stringify(objName)}) })`;
+    } else if (ext === '.csv') {
+      expr = `local({ assign(${JSON.stringify(objName)}, utils::read.csv(${JSON.stringify(filePath)}, stringsAsFactors = TRUE, check.names = TRUE), envir = globalenv()); list(ok = TRUE, objects = ${JSON.stringify(objName)}) })`;
+    } else if (ext === '.tsv' || ext === '.tab') {
+      expr = `local({ assign(${JSON.stringify(objName)}, utils::read.delim(${JSON.stringify(filePath)}, stringsAsFactors = TRUE, check.names = TRUE), envir = globalenv()); list(ok = TRUE, objects = ${JSON.stringify(objName)}) })`;
+    } else if (ext === '.xlsx' || ext === '.xls') {
+      expr = `local({
+        if (requireNamespace("readxl", quietly = TRUE)) {
+          .d <- as.data.frame(readxl::read_excel(${JSON.stringify(filePath)}))
+        } else if (requireNamespace("openxlsx", quietly = TRUE)) {
+          .d <- openxlsx::read.xlsx(${JSON.stringify(filePath)})
+        } else {
+          stop("Install package 'readxl' or 'openxlsx' to import Excel files.")
+        }
+        assign(${JSON.stringify(objName)}, .d, envir = globalenv())
+        list(ok = TRUE, objects = ${JSON.stringify(objName)})
+      })`;
+    } else {
+      return { ok: false, error: `Unsupported R data file extension: ${ext}` };
+    }
+
+    const res = await this._jsonRpc(expr, 30000);
+    if (!res.ok) return res;
+    const objects = Array.isArray(res.objects) ? res.objects : res.objects ? [res.objects] : [];
+    const snapshot = await this.snapshot();
+    const loadedDatasets = objects.filter((n) => Boolean(snapshot.datasets?.[n]));
+    return {
+      ok: true,
+      filePath,
+      objects,
+      loadedDatasets,
+      snapshot
+    };
+  }
+
   async query(expression, timeoutMs = 15000) {
     const outFile = path.join(os.tmpdir(), `rcs-q-${process.pid}-${crypto.randomBytes(6).toString('hex')}.txt`);
     const jobScript = `
@@ -624,11 +1001,116 @@ local({
     return parseSessionInfo(lines);
   }
 
+  /**
+   * Fast cached R function usage, parameters, summary, and full Rd documentation lookup
+   * for Monaco Hover, Signature Help, and the Help tab.
+   */
+  async getFunctionHelp(fnName, pkg = '') {
+    const cleanFn = String(fnName || '').trim();
+    const cleanPkg = String(pkg || '').trim();
+    if (!cleanFn || !/^[A-Za-z._][A-Za-z0-9._]*$/.test(cleanFn)) {
+      return { ok: false, error: 'Invalid function name' };
+    }
+    const cacheKey = `${cleanPkg}::${cleanFn}`;
+    if (this._fnHelpCache.has(cacheKey)) {
+      return this._fnHelpCache.get(cacheKey);
+    }
+
+    const expr = `local({
+      fn_name <- ${JSON.stringify(cleanFn)}
+      pkg_name <- ${JSON.stringify(cleanPkg)}
+      res <- list(ok = FALSE, fn = fn_name, package = pkg_name, title = "", usage = "", description = "", arguments = "", examples = "", params = character(), fullText = "")
+
+      # 1. Try retrieving function signature via args()
+      fn_obj <- tryCatch({
+        if (nzchar(pkg_name) && requireNamespace(pkg_name, quietly = TRUE)) {
+          getExportedValue(pkg_name, fn_name)
+        } else if (exists(fn_name, envir = globalenv(), mode = "function")) {
+          get(fn_name, envir = globalenv(), mode = "function")
+        } else {
+          NULL
+        }
+      }, error = function(e) NULL)
+
+      if (is.function(fn_obj)) {
+        a <- tryCatch(capture.output(args(fn_obj)), error = function(e) character())
+        if (length(a) > 1L) a <- a[-length(a)]
+        sig <- trimws(paste(a, collapse = " "))
+        sig <- sub("^function[[:space:]]*\\\\(", paste0(fn_name, "("), sig)
+        res$usage <- sig
+        res$params <- names(formals(fn_obj))
+        env_name <- environmentName(environment(fn_obj))
+        if (nzchar(env_name) && !nzchar(res$package)) res$package <- sub("^package:", "", env_name)
+        res$ok <- TRUE
+      }
+
+      # 2. Try Rd help page via utils::help()
+      h <- tryCatch({
+        if (nzchar(pkg_name)) utils::help(topic = (fn_name), package = (pkg_name))
+        else utils::help(topic = (fn_name))
+      }, error = function(e) character())
+
+      if (length(h)) {
+        rd <- tryCatch(utils:::.getHelpFile(h[1L]), error = function(e) NULL)
+        if (!is.null(rd)) {
+          full <- paste(utils::capture.output(tools::Rd2txt(rd, out = stdout(), options = list(underline_titles = FALSE))), collapse = "\\n")
+          full <- gsub(".\\b", "", full)
+          res$fullText <- full
+          res$ok <- TRUE
+
+          # Extract package from path if empty
+          if (!nzchar(res$package)) {
+            res$package <- basename(dirname(dirname(as.character(h[1L]))))
+          }
+
+          # Extract sections cleanly from plain Rd text
+          lines <- strsplit(full, "\\n", fixed = TRUE)[[1L]]
+          if (length(lines)) res$title <- trimws(lines[1L])
+
+          extract_sec <- function(sec_name) {
+            idx <- which(trimws(lines) == paste0(sec_name, ":"))
+            if (!length(idx)) return("")
+            start <- idx[1L] + 1L
+            if (start > length(lines)) return("")
+            out <- character()
+            for (k in seq.int(start, length(lines))) {
+              if (grepl("^[A-Z][A-Za-z ]+:$", trimws(lines[k])) && !grepl("^[[:space:]]", lines[k])) break
+              out <- c(out, lines[k])
+            }
+            trimws(paste(out, collapse = "\\n"))
+          }
+
+          desc <- extract_sec("Description")
+          if (nzchar(desc)) res$description <- desc
+          usg <- extract_sec("Usage")
+          if (nzchar(usg) && !nzchar(res$usage)) res$usage <- usg
+          args_sec <- extract_sec("Arguments")
+          if (nzchar(args_sec)) res$arguments <- args_sec
+          ex_sec <- extract_sec("Examples")
+          if (nzchar(ex_sec)) {
+            ex_lines <- strsplit(ex_sec, "\\n", fixed = TRUE)[[1L]]
+            ex_lines <- ex_lines[nzchar(trimws(ex_lines))]
+            res$examples <- paste(head(ex_lines, 8L), collapse = "\\n")
+          }
+        }
+      }
+      res
+    })`;
+
+    const result = await this._jsonRpc(expr, 10000);
+    if (result && result.ok) {
+      if (!Array.isArray(result.params)) {
+        result.params = result.params ? [String(result.params)] : [];
+      }
+      this._fnHelpCache.set(cacheKey, result);
+    }
+    return result;
+  }
+
   interrupt() {
     if (!this._proc) return false;
     try {
       this._proc.kill('SIGINT');
-      // If active job doesn't unwind quickly, restart cleanly
       setTimeout(() => {
         if (this._activeJob) {
           this.restartSession().catch(() => {});

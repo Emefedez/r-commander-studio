@@ -35,13 +35,15 @@ test('NoteCompleteBridge auth, discovery file (0600), health, catalog, live eval
   const runtime = new RRuntime();
   const rcmdr = new RcmdrService();
   const openedScripts = [];
+  const openedPaths = [];
 
   const bridge = new NoteCompleteBridge({
     runtime,
     rcmdr,
     bridgeFilePath,
     getDatasets: () => ['mtcars', 'iris'],
-    onOpenScript: (payload) => openedScripts.push(payload)
+    onOpenScript: (payload) => openedScripts.push(payload),
+    onOpenPath: (payload) => openedPaths.push(payload)
   });
 
   try {
@@ -174,6 +176,18 @@ test('NoteCompleteBridge auth, discovery file (0600), health, catalog, live eval
     assert.equal(openJson.ok, true);
     assert.equal(openedScripts.length, 1);
     assert.deepEqual(openedScripts[0], { title: 'Figure 1', code: 'plot(cars)', kind: 'r' });
+
+    // 9b. POST /open-path
+    const openPathRes = await fetch(`${baseUrl}/open-path`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ filePath: '/tmp/example.R', folderPath: '/tmp' })
+    });
+    assert.equal(openPathRes.status, 200);
+    const openPathJson = await openPathRes.json();
+    assert.equal(openPathJson.ok, true);
+    assert.equal(openedPaths.length, 1);
+    assert.deepEqual(openedPaths[0], { filePath: '/tmp/example.R', folderPath: '/tmp' });
 
     // 10. Clean close removes discovery file
     await bridge.close();

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,171 +7,325 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Top Toolbar (NoteComplete Chrome) -->
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-icon" aria-hidden="true">R</span>
-      <span class="brand-title">R Commander Studio</span>
+  <!-- Single Ultra-Clean 34px VS Code Top Bar -->
+  <header class="titlebar" id="titlebar">
+    <div class="titlebar-left">
+      <img src="../assets/icon.svg" alt="R Commander Studio" class="titlebar-icon">
+      <nav id="menuBar" class="menubar" aria-label="Application menu"></nav>
     </div>
 
-    <span class="tool-sep"></span>
-
-    <button id="btnNewR" class="btn-filled" title="New R Script (Ctrl+N)">+ .R</button>
-    <button id="btnNewRmd" class="btn-filled" title="New R Markdown (Ctrl+Shift+N)">+ .Rmd</button>
-    <button id="btnOpen" title="Open File (Ctrl+O)">Open</button>
-    <button id="btnSave" title="Save (Ctrl+S)">Save</button>
-    <button id="btnSaveAs" title="Save As (Ctrl+Shift+S)">Save As</button>
-
-    <span class="tool-sep"></span>
-
-    <button id="btnRun" class="btn-run" title="Run Selection or Line (Ctrl+Enter)">▶ Run</button>
-    <button id="btnRunAll" class="btn-primary" title="Run Entire File (Ctrl+Shift+Enter)">▶▶ Run All</button>
-    <button id="btnInterrupt" class="btn-danger" title="Interrupt R Execution">■ Stop</button>
-    <button id="btnPreview" title="Toggle Markdown / Rmd Split Preview (Ctrl+Shift+V)">Preview</button>
-    <button id="btnKnit" title="Knit R Markdown with rmarkdown::render (Ctrl+Shift+K)">Knit</button>
-
-    <span class="spacer"></span>
-
-    <button id="badgeDataset" class="ctx-badge" title="Active Dataset (click to inspect Workspace)">
-      Data: <strong id="activeDatasetName">none</strong>
-    </button>
-    <button id="badgeModel" class="ctx-badge" title="Active Model">
-      Model: <strong id="activeModelName">none</strong>
-    </button>
-
-    <div class="pill-group" role="group" aria-label="R Commander Language">
-      <button id="langEn" class="active" data-lang="en">EN</button>
-      <button id="langEs" data-lang="es">ES</button>
+    <div class="titlebar-center">
+      <button type="button" id="topSearchTrigger" class="top-search-box" data-i18n-title="commandPalette">
+        <span class="ico" data-icon="search" data-size="13"></span>
+        <span class="top-search-text" data-i18n="topSearchPlaceholder">Buscar menús y comandos... (Ctrl+K)</span>
+      </button>
     </div>
 
-    <button id="btnTheme" class="btn-filled" title="Toggle Light / Dark Theme">Light</button>
-
-    <span id="bridgePill" class="bridge-pill" title="NoteComplete Local Bridge">
-      <span class="bridge-dot"></span>
-      <span id="bridgeText">Bridge</span>
-    </span>
+    <div class="titlebar-right">
+      <button type="button" id="btnRun" class="top-icon-btn run-accent" data-icon="play" data-size="14" data-i18n-title="runSelection"></button>
+      <button type="button" id="btnRunAll" class="top-icon-btn" data-icon="play-all" data-size="14" data-i18n-title="runAll"></button>
+      <button type="button" id="btnInterrupt" class="top-icon-btn" data-icon="stop" data-size="13" data-i18n-title="interruptR"></button>
+      <span class="tb-sep"></span>
+      <button type="button" id="btnPreview" class="top-icon-btn" data-icon="eye" data-size="15" data-i18n-title="togglePreview"></button>
+      <button type="button" id="btnKnit" class="top-icon-btn" data-icon="hammer" data-size="15" data-i18n-title="knitRmd"></button>
+      <button type="button" id="btnDocsCursor" class="top-icon-btn" data-icon="book" data-size="15" data-i18n-title="openDocsBtn"></button>
+      <button type="button" id="btnSplit" class="top-icon-btn" data-icon="split" data-size="15" data-i18n-title="splitEditor"></button>
+      <span class="tb-sep"></span>
+      <button type="button" id="btnToggleExplorer" class="top-icon-btn" data-icon="sidebar" data-size="15" data-i18n-title="toggleSidebar"></button>
+      <button type="button" id="btnToggleRcmdr" class="top-icon-btn" data-icon="sidebar-right" data-size="15" data-i18n-title="toggleRcmdrSidebar"></button>
+      <button type="button" id="btnTogglePanel" class="top-icon-btn" data-icon="panel-bottom" data-size="15" data-i18n-title="togglePanel"></button>
+    </div>
   </header>
 
-  <!-- Main Workbench -->
-  <div class="workbench">
-    <!-- Left Sidebar -->
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-tabs">
-        <button class="sidebar-tab active" data-side="rcmdr">R Commander</button>
-        <button class="sidebar-tab" data-side="workspace">Workspace</button>
-      </div>
+  <!-- Main VS Code Workbench (All sidebars & panel seated statically inside their docks for zero FOUC) -->
+  <div class="workbench" id="workbench">
+    <!-- Left Activity Bar (40px, #343746) -->
+    <nav class="activitybar" aria-label="Activity bar">
+      <button type="button" id="actExplorer" class="act-btn active" data-icon="files" data-size="19" data-i18n-title="sidebarExplorerTitle"></button>
+      <button type="button" id="actRcmdr" class="act-btn active" data-icon="r-logo" data-size="19" data-i18n-title="sidebarRcmdrTitle"></button>
+      <button type="button" id="actPlots" class="act-btn" data-icon="graph-line" data-size="19" data-i18n-title="dockPlots"></button>
+      <button type="button" id="actHelp" class="act-btn" data-icon="question" data-size="19" data-i18n-title="dockHelp"></button>
+      <span class="spacer"></span>
+      <button type="button" id="actTheme" class="act-btn" data-icon="moon" data-size="18" data-i18n-title="toggleTheme"></button>
+      <button type="button" id="actSettings" class="act-btn" data-icon="settings" data-size="19" data-i18n-title="openSettings"></button>
+    </nav>
 
-      <!-- R Commander 371-Command Tree -->
-      <div class="sidebar-pane" id="paneRcmdr">
-        <div class="sidebar-search">
-          <input id="rcmdrSearch" type="text" placeholder="Search 371 R Commander dialogs..." autocomplete="off">
+    <!-- Left Collapsed Peek Rail (shown only when a left-docked sidebar is closed) -->
+    <div class="peek-rail rail-left" id="peekRailLeft" hidden></div>
+
+    <!-- Left Dock (hosts side-by-side sidebars and/or panel docked left) -->
+    <div class="side-dock dock-left" id="dockLeft">
+      <aside class="dockable-sidebar" id="sidebarExplorer" data-sidebar="explorer">
+        <div class="sidebar-titlebar" draggable="true" data-drag-panel="explorer" data-i18n-title="dragToDockHint">
+          <span class="sidebar-title-text" data-i18n="sidebarExplorerTitle">Archivos y Entorno</span>
+          <span class="spacer"></span>
+          <button type="button" id="btnFlipExplorer" class="icon-btn" data-icon="dock-right" data-size="14" data-i18n-title="moveSidebarRight"></button>
+          <button type="button" id="btnCloseExplorer" class="icon-btn" data-icon="close" data-size="14" data-i18n-title="dlgClose"></button>
         </div>
-        <div class="sidebar-scroll" id="rcmdrTree"></div>
-      </div>
 
-      <!-- Live Workspace Inspector -->
-      <div class="sidebar-pane" id="paneWorkspace" hidden>
-        <div class="sidebar-search">
-          <button id="btnRefreshWs" class="btn-filled" style="width:100%">↻ Refresh R Workspace</button>
+        <div class="sidebar-accordions">
+          <section class="accordion open" id="accWorkspace">
+            <div class="accordion-head" data-acc="accWorkspace">
+              <span class="acc-chevron" data-icon="chevron-down" data-size="13"></span>
+              <span class="acc-title" data-i18n="sideWorkspace">Entorno</span>
+              <span class="spacer"></span>
+              <div class="acc-actions">
+                <button type="button" id="btnWsLoadRData" class="icon-btn" data-icon="folder-open" data-size="14" data-i18n-title="loadWorkspace"></button>
+                <button type="button" id="btnWsSaveRData" class="icon-btn" data-icon="save" data-size="14" data-i18n-title="saveWorkspaceAs"></button>
+                <button type="button" id="btnRefreshWs" class="icon-btn" data-icon="refresh" data-size="14" data-i18n-title="refreshWsBtn"></button>
+              </div>
+            </div>
+            <div class="accordion-body" id="workspaceContent"></div>
+          </section>
+
+          <section class="accordion open" id="accGroups">
+            <div class="accordion-head" data-acc="accGroups">
+              <span class="acc-chevron" data-icon="chevron-down" data-size="13"></span>
+              <span class="acc-title" data-i18n="openEditorsAndGroups">Editores abiertos y Grupos</span>
+              <span class="spacer"></span>
+              <div class="acc-actions">
+                <button type="button" id="btnNewFileGroup" class="icon-btn" data-icon="group" data-size="14" data-i18n-title="newGroup"></button>
+                <button type="button" id="btnNewRQuick" class="icon-btn" data-icon="new-file" data-size="14" data-i18n-title="newRScript"></button>
+                <button type="button" id="btnOpenFileQuick" class="icon-btn" data-icon="folder-open" data-size="14" data-i18n-title="openFile"></button>
+              </div>
+            </div>
+            <div class="accordion-body" id="fileGroupsList"></div>
+          </section>
+
+          <section class="accordion open" id="accFolder">
+            <div class="accordion-head" data-acc="accFolder">
+              <span class="acc-chevron" data-icon="chevron-down" data-size="13"></span>
+              <span class="acc-title" id="folderHeaderName" data-i18n="workspaceFolder">Carpeta de trabajo</span>
+              <span class="spacer"></span>
+              <div class="acc-actions">
+                <button type="button" id="btnOpenFolder" class="icon-btn" data-icon="folder-open" data-size="14" data-i18n-title="openFolderBtn"></button>
+                <button type="button" id="btnExplorerNewFile" class="icon-btn" data-icon="new-file" data-size="14" data-i18n-title="newFileBtn" hidden></button>
+                <button type="button" id="btnExplorerNewFolder" class="icon-btn" data-icon="new-folder" data-size="14" data-i18n-title="newFolderBtn" hidden></button>
+              </div>
+            </div>
+            <div class="accordion-body" id="folderTree"></div>
+          </section>
         </div>
-        <div class="sidebar-scroll" id="workspaceContent">
-          <div class="ws-empty">Run R code or load a dataset to inspect objects.</div>
+      </aside>
+    </div>
+    <div class="v-grip" id="leftDockGrip"></div>
+
+    <!-- Center Editor + Bottom Panel Stack -->
+    <main class="center-stack" id="centerStack">
+      <div class="editor-and-preview">
+        <div class="editor-groups" id="editorGroups">
+          <section class="editor-group focused" id="editorGroup0" data-group="0">
+            <div class="tab-strip">
+              <div class="tab-bar" id="tabBar0"></div>
+              <div class="tab-actions">
+                <button type="button" id="btnAddTab0" class="icon-btn" data-icon="new-file" data-size="14" data-i18n-title="newRScript"></button>
+                <button type="button" id="btnSave0" class="icon-btn" data-icon="save" data-size="14" data-i18n-title="save"></button>
+                <button type="button" id="btnSplit0" class="icon-btn" data-icon="split" data-size="14" data-i18n-title="splitEditor"></button>
+              </div>
+            </div>
+            <div class="breadcrumb" id="breadcrumb0"></div>
+            <div class="group-stage">
+              <div id="editorHost0" class="editor-host"></div>
+              <div id="tableHost0" class="table-host" hidden></div>
+              <div id="emptyHost0" class="empty-host" hidden></div>
+            </div>
+          </section>
+
+          <div class="v-grip" id="splitGrip" hidden></div>
+
+          <section class="editor-group" id="editorGroup1" data-group="1" hidden>
+            <div class="tab-strip">
+              <div class="tab-bar" id="tabBar1"></div>
+              <div class="tab-actions">
+                <button type="button" id="btnAddTab1" class="icon-btn" data-icon="new-file" data-size="14" data-i18n-title="newRScript"></button>
+                <button type="button" id="btnCloseSplit" class="icon-btn" data-icon="close" data-size="14" data-i18n-title="closeSplitEditor"></button>
+              </div>
+            </div>
+            <div class="breadcrumb" id="breadcrumb1"></div>
+            <div class="group-stage">
+              <div id="editorHost1" class="editor-host"></div>
+              <div id="tableHost1" class="table-host" hidden></div>
+              <div id="emptyHost1" class="empty-host" hidden></div>
+            </div>
+          </section>
         </div>
-      </div>
-    </aside>
-
-    <div class="v-grip" id="sidebarGrip" title="Drag to resize sidebar"></div>
-
-    <!-- Center Editor + Preview + Bottom Dock -->
-    <main class="center-col">
-      <div class="tab-bar" id="tabBar">
-        <button id="btnAddTab" class="tab-add" title="New R Script">+</button>
-      </div>
-
-      <div class="editor-stage">
-        <div id="editorHost" class="editor-host"></div>
 
         <section id="previewPane" class="preview-pane" hidden>
           <div class="preview-head">
-            <strong id="previewTitle">Live Preview</strong>
+            <span id="previewTitle" class="preview-title">Preview</span>
             <span class="spacer"></span>
-            <button id="btnPreviewModeLive" class="btn-primary" style="min-height:22px;padding:1px 8px">Live</button>
-            <button id="btnPreviewModeKnit" style="min-height:22px;padding:1px 8px">Knit HTML</button>
-            <button id="btnClosePreview" class="btn-icon" style="min-height:22px">×</button>
+            <button type="button" id="btnPreviewModeLive" class="icon-btn active" data-icon="eye" data-size="14" data-i18n-title="previewLiveBtn"></button>
+            <button type="button" id="btnPreviewModeKnit" class="icon-btn" data-icon="hammer" data-size="14" data-i18n-title="previewKnitBtn"></button>
+            <button type="button" id="btnClosePreview" class="icon-btn" data-icon="close" data-size="14" data-i18n-title="dlgClose"></button>
           </div>
           <div id="previewBody" class="preview-body"></div>
           <iframe id="previewIframe" class="preview-iframe" sandbox="allow-scripts" hidden></iframe>
         </section>
       </div>
 
-      <div class="h-grip" id="dockGrip" title="Drag to resize bottom panel"></div>
+      <div class="h-grip" id="bottomPanelGrip"></div>
 
-      <!-- Bottom Dock -->
-      <section class="bottom-dock" id="bottomDock">
-        <div class="dock-bar">
-          <button class="dock-tab active" data-dock="console">Console</button>
-          <button class="dock-tab" data-dock="problems">
-            Problems <span class="badge-count" id="problemsCount">0</span>
-          </button>
-          <button class="dock-tab" data-dock="plots">
-            Plots <span class="badge-count" id="plotsCount">0</span>
-          </button>
-          <span class="spacer"></span>
-          <button id="btnClearConsole" style="min-height:22px;padding:1px 8px">Clear</button>
-          <button id="btnRestartR" style="min-height:22px;padding:1px 8px">Restart R</button>
-        </div>
+      <!-- Bottom Dock (hosts Dockable Panel by default) -->
+      <div class="bottom-dock-slot" id="dockBottom">
+        <section class="dock-panel orient-horizontal" id="dockPanel">
+          <div class="panel-header" draggable="true" data-drag-panel="panel" data-i18n-title="dragToDockHint">
+            <div class="panel-tabs" id="panelTabs">
+              <button type="button" class="panel-tab active" data-dock="console">
+                <span class="ico" data-icon="terminal" data-size="13"></span>
+                <span class="panel-tab-label" data-i18n="dockRConsole">Consola R</span>
+              </button>
+              <button type="button" class="panel-tab" data-dock="arf">
+                <span class="ico" data-icon="r-logo" data-size="13"></span>
+                <span class="panel-tab-label" data-i18n="dockArf">arf</span>
+              </button>
+              <button type="button" class="panel-tab" data-dock="plots">
+                <span class="ico" data-icon="graph-line" data-size="13"></span>
+                <span class="panel-tab-label" data-i18n="dockPlots">Gráficas</span>
+                <span class="panel-count" id="plotsCount">0</span>
+              </button>
+              <button type="button" class="panel-tab" data-dock="problems">
+                <span class="ico" data-icon="warning" data-size="13"></span>
+                <span class="panel-tab-label" data-i18n="dockProblems">Problemas</span>
+                <span class="panel-count" id="problemsCount">0</span>
+              </button>
+              <button type="button" class="panel-tab" data-dock="help">
+                <span class="ico" data-icon="book" data-size="13"></span>
+                <span class="panel-tab-label" data-i18n="dockHelp">Ayuda</span>
+              </button>
+            </div>
+            <div class="panel-actions">
+              <button type="button" id="btnPanelLimitOutput" class="icon-btn active" data-icon="truncate" data-size="14" data-i18n-title="settingsLimitOutput"></button>
+              <button type="button" id="btnPanelWordWrap" class="icon-btn active" data-icon="word-wrap" data-size="14" data-i18n-title="toggleWordWrap"></button>
+              <button type="button" id="btnPanelHistory" class="icon-btn" data-icon="history" data-size="14" data-i18n-title="panelHistoryTitle"></button>
+              <span class="tb-sep"></span>
+              <button type="button" id="btnPanelInterrupt" class="icon-btn" data-icon="stop" data-size="13" data-i18n-title="interruptR"></button>
+              <button type="button" id="btnPanelRestart" class="icon-btn" data-icon="restart" data-size="14" data-i18n-title="restartR"></button>
+              <button type="button" id="btnPanelClear" class="icon-btn" data-icon="clear" data-size="14" data-i18n-title="clearConsole"></button>
+              <button type="button" id="btnPanelOrient" class="icon-btn" data-icon="orient-v" data-size="14" data-i18n-title="togglePanelOrientation"></button>
+              <button type="button" id="btnPanelDockCycle" class="icon-btn" data-icon="panel-right" data-size="14" data-i18n-title="toggleDockPosition"></button>
+              <button type="button" id="btnPanelClose" class="icon-btn" data-icon="close" data-size="14" data-i18n-title="dlgClose"></button>
+            </div>
+          </div>
 
-        <!-- Console Pane -->
-        <div class="dock-pane" id="dockConsole">
-          <div class="console-out" id="consoleOut"></div>
-          <div class="console-input-row">
-            <span class="console-prompt">&gt;</span>
-            <input id="consoleInput" type="text" placeholder="Run R expression (Enter)..." autocomplete="off">
-            <button id="btnConsoleSend" class="btn-primary" style="min-height:24px;padding:1px 10px">Eval</button>
-          </div>
-        </div>
+          <div class="panel-body">
+            <div class="dock-pane" id="dockConsole">
+              <div class="console-out" id="consoleOut"></div>
+              <div class="console-input-row">
+                <span class="console-prompt" data-icon="prompt-arrow" data-size="13"></span>
+                <input id="consoleInput" type="text" data-i18n-placeholder="consoleReplPlaceholder" autocomplete="off">
+              </div>
+            </div>
 
-        <!-- Problems Pane -->
-        <div class="dock-pane" id="dockProblems" hidden>
-          <div class="problems-list" id="problemsList">
-            <div class="ws-empty">No problems detected in active document.</div>
-          </div>
-        </div>
+            <div class="dock-pane" id="dockArf" hidden>
+              <div class="console-out" id="arfOut"></div>
+              <div class="console-input-row">
+                <span class="console-prompt arf-prompt" data-icon="prompt-arrow" data-size="13"></span>
+                <input id="arfInput" type="text" data-i18n-placeholder="arfPlaceholder" autocomplete="off">
+              </div>
+            </div>
 
-        <!-- Plots Pane -->
-        <div class="dock-pane" id="dockPlots" hidden>
-          <div class="plots-toolbar">
-            <button id="btnPlotPrev" class="btn-filled" style="min-height:24px">◀ Prev</button>
-            <span id="plotIndexLabel" class="muted">0 / 0</span>
-            <button id="btnPlotNext" class="btn-filled" style="min-height:24px">Next ▶</button>
-            <span class="tool-sep"></span>
-            <button id="btnPlotZoomOut" class="btn-filled" style="min-height:24px">−</button>
-            <button id="btnPlotZoomReset" class="btn-filled" style="min-height:24px">100%</button>
-            <button id="btnPlotZoomIn" class="btn-filled" style="min-height:24px">+</button>
-            <span class="spacer"></span>
-            <button id="btnPlotSave" class="btn-primary" style="min-height:24px">Save SVG</button>
-            <button id="btnPlotClear" class="btn-danger" style="min-height:24px">Clear</button>
+            <div class="dock-pane" id="dockPlots" hidden>
+              <div class="plots-toolbar">
+                <button type="button" id="btnPlotPrev" class="icon-btn" data-icon="chevron-left" data-size="14" data-i18n-title="plotPrev"></button>
+                <span id="plotIndexLabel" class="muted">0 / 0</span>
+                <button type="button" id="btnPlotNext" class="icon-btn" data-icon="chevron-right" data-size="14" data-i18n-title="plotNext"></button>
+                <span class="tb-sep"></span>
+                <button type="button" id="btnPlotZoomOut" class="icon-btn" data-icon="zoom-out" data-size="14" title="Zoom Out"></button>
+                <button type="button" id="btnPlotZoomReset" class="plot-zoom-readout" title="Reset Zoom">100%</button>
+                <button type="button" id="btnPlotZoomIn" class="icon-btn" data-icon="zoom-in" data-size="14" title="Zoom In"></button>
+                <span class="spacer"></span>
+                <button type="button" id="btnPlotCopyPng" class="icon-btn" data-icon="copy" data-size="14" title="Copy PNG"></button>
+                <button type="button" id="btnPlotSaveSvg" class="icon-btn" data-icon="download" data-size="14" data-i18n-title="plotSaveSvg"></button>
+                <button type="button" id="btnPlotSavePng" class="plot-fmt-btn" title="Export PNG (2x)">PNG</button>
+                <button type="button" id="btnPlotSavePdf" class="plot-fmt-btn" title="Export PDF">PDF</button>
+                <button type="button" id="btnPlotClear" class="icon-btn" data-icon="clear" data-size="14" data-i18n-title="plotClear"></button>
+              </div>
+              <div class="plots-canvas" id="plotsCanvas"></div>
+            </div>
+
+            <div class="dock-pane" id="dockProblems" hidden>
+              <div class="problems-list" id="problemsList"></div>
+            </div>
+
+            <div class="dock-pane" id="dockHelp" hidden>
+              <div class="help-search-row">
+                <span class="ico" data-icon="search" data-size="13"></span>
+                <input id="helpSearchInput" type="text" data-i18n-placeholder="helpSearchPlaceholder" autocomplete="off">
+                <button type="button" id="btnHelpGo" class="icon-btn" data-icon="chevron-right" data-size="14" title="Search"></button>
+              </div>
+              <div class="help-content" id="helpContent"></div>
+            </div>
           </div>
-          <div class="plots-canvas" id="plotsCanvas">
-            <div class="ws-empty">Plots generated by R (base graphics or ggplot2) appear here automatically.</div>
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
+
+    <!-- Right Dock (hosts R Commander sidebar by default) -->
+    <div class="v-grip" id="rightDockGrip"></div>
+    <div class="side-dock dock-right" id="dockRight">
+      <aside class="dockable-sidebar" id="sidebarRcmdr" data-sidebar="rcmdr">
+        <div class="sidebar-titlebar" draggable="true" data-drag-panel="rcmdr" data-i18n-title="dragToDockHint">
+          <span class="sidebar-title-text" data-i18n="sidebarRcmdrTitle">R Commander</span>
+          <span class="spacer"></span>
+          <button type="button" id="btnRcmdrFocusSearch" class="icon-btn" data-icon="search" data-size="14" data-i18n-title="rcmdrSearchPlaceholder"></button>
+          <button type="button" id="btnRcmdrCollapse" class="icon-btn" data-icon="collapse-all" data-size="14" data-i18n-title="rcmdrCollapseAll"></button>
+          <button type="button" id="btnFlipRcmdr" class="icon-btn" data-icon="dock-left" data-size="14" data-i18n-title="moveSidebarLeft"></button>
+          <button type="button" id="btnCloseRcmdr" class="icon-btn" data-icon="close" data-size="14" data-i18n-title="dlgClose"></button>
+        </div>
+
+        <div class="rcmdr-search-bar">
+          <span class="ico" data-icon="search" data-size="13"></span>
+          <input id="rcmdrSearch" type="text" data-i18n-placeholder="rcmdrSearchPlaceholder" autocomplete="off">
+          <button type="button" id="btnRcmdrClear" class="icon-btn" data-icon="close" data-size="12" data-i18n-title="rcmdrClearSearch"></button>
+        </div>
+
+        <div class="sidebar-scroll" id="rcmdrTree"></div>
+      </aside>
+    </div>
+
+    <!-- Right Collapsed Peek Rail (shown only when a right-docked sidebar is closed) -->
+    <div class="peek-rail rail-right" id="peekRailRight" hidden></div>
+
+    <!-- Drag-and-Drop Workbench Docking Overlays -->
+    <div id="dropZoneLeft" class="dock-drop-zone zone-left" hidden>
+      <span data-i18n="dropZoneLeft">Acoplar izquierda</span>
+    </div>
+    <div id="dropZoneRight" class="dock-drop-zone zone-right" hidden>
+      <span data-i18n="dropZoneRight">Acoplar derecha</span>
+    </div>
+    <div id="dropZoneBottom" class="dock-drop-zone zone-bottom" hidden>
+      <span data-i18n="dropZoneBottom">Acoplar abajo</span>
+    </div>
   </div>
 
-  <!-- Compact Status Bar -->
+  <!-- 22px VS Code Status Bar -->
   <footer class="statusbar">
-    <span class="status-item" id="statusR">R: probing...</span>
-    <span class="status-item" id="statusLsp">LSP: starting...</span>
-    <span class="status-item" id="statusArf"></span>
+    <button type="button" id="statusProblemsBtn" class="status-item-btn">
+      <span class="ico" data-icon="error" data-size="12"></span>
+      <span id="statusErrCount">0</span>
+      <span class="ico" data-icon="warning" data-size="12"></span>
+      <span id="statusWarnCount">0</span>
+    </button>
+    <span class="status-item" id="statusR">R: ...</span>
+    <button type="button" id="statusRunTarget" class="status-item-btn" title="Run target">R</button>
+    <span class="status-item status-recording" id="statusRecording" hidden></span>
     <span class="spacer"></span>
     <span class="status-item" id="statusCursor">Ln 1, Col 1</span>
     <span class="status-item" id="statusLang">R</span>
-    <span class="status-item">UTF-8</span>
+    <button type="button" id="statusRPlay" class="status-item-btn" data-i18n-title="statusRPlayTooltip"></button>
+    <button type="button" id="statusRcmdrCtx" class="status-item-btn" title="R Commander Active Data & Model"></button>
+    <span class="status-item" id="statusLsp">R LSP</span>
+    <span class="status-item" id="statusBridge"></span>
+    <button type="button" id="statusLangBtn" class="status-item-btn" data-i18n-title="switchLanguage">ES</button>
+    <button type="button" id="statusThemeBtn" class="status-item-btn" data-i18n-title="toggleTheme">Dracula</button>
   </footer>
 
-  <!-- Dynamic R Commander Dialog Modal -->
+  <!-- External File Drag & Drop Overlay -->
+  <div id="dropOverlay" class="drop-overlay" hidden>
+    <div class="drop-card" data-i18n="dropHint">Arrastra archivos aquí</div>
+  </div>
+
+  <!-- Dynamic R Commander Dialog Modal (exact match to dialog.png) -->
   <div id="rcmdrModalBackdrop" class="modal-backdrop" hidden>
     <div class="rcmdr-modal" role="dialog" aria-modal="true" aria-labelledby="rcmdrModalTitle">
       <div class="rcmdr-modal-head">
@@ -179,7 +333,7 @@
           <h2 id="rcmdrModalTitle" class="rcmdr-modal-title">R Commander</h2>
           <div id="rcmdrModalSub" class="rcmdr-modal-sub"></div>
         </div>
-        <button id="rcmdrModalClose" class="btn-icon" title="Close (Esc)">×</button>
+        <button type="button" id="rcmdrModalClose" class="icon-btn" data-icon="close" data-size="14"></button>
       </div>
       <div class="rcmdr-modal-body">
         <div id="rcmdrDsRow" class="rcmdr-ds-row" hidden></div>
@@ -187,20 +341,60 @@
       </div>
       <div class="rcmdr-modal-foot">
         <span id="rcmdrModalStatus" class="rcmdr-modal-status"></span>
-        <button id="rcmdrBtnReset" class="btn-filled">Reset</button>
-        <button id="rcmdrBtnCancel" class="btn-filled">Cancel</button>
-        <button id="rcmdrBtnInsert" class="btn-primary">Insert in Script</button>
-        <button id="rcmdrBtnRun" class="btn-run">▶ Run</button>
-        <button id="rcmdrBtnBoth" class="btn-solid-primary">▶ Run &amp; Insert</button>
+        <button type="button" id="rcmdrBtnReset" class="dlg-btn" data-i18n="dlgReset">Reiniciar</button>
+        <button type="button" id="rcmdrBtnCancel" class="dlg-btn" data-i18n="dlgCancel">Cancelar</button>
+        <button type="button" id="rcmdrBtnInsert" class="dlg-btn" data-i18n="dlgInsert">Insertar</button>
+        <button type="button" id="rcmdrBtnRun" class="dlg-btn" data-i18n="dlgRun">Ejecutar</button>
+        <button type="button" id="rcmdrBtnBoth" class="dlg-btn primary" data-i18n="dlgRunAndInsert">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command Palette Modal (Ctrl+Shift+P / Ctrl+K) -->
+  <div id="paletteBackdrop" class="modal-backdrop palette-backdrop" hidden>
+    <div class="palette-modal" role="dialog" aria-modal="true">
+      <div class="palette-input-wrap">
+        <input id="paletteInput" type="text" autocomplete="off">
+      </div>
+      <div id="paletteList" class="palette-list"></div>
+    </div>
+  </div>
+
+  <!-- R Play, Themes & Studio Settings Modal -->
+  <div id="settingsBackdrop" class="modal-backdrop" hidden>
+    <div class="rcmdr-modal settings-modal" role="dialog" aria-modal="true">
+      <div class="rcmdr-modal-head">
+        <div>
+          <h2 id="settingsTitle" class="rcmdr-modal-title">Settings</h2>
+          <div id="settingsSub" class="rcmdr-modal-sub"></div>
+        </div>
+        <button type="button" id="settingsClose" class="icon-btn" data-icon="close" data-size="14"></button>
+      </div>
+      <div id="settingsBody" class="rcmdr-modal-body settings-body"></div>
+      <div class="rcmdr-modal-foot">
+        <button type="button" id="settingsReset" class="dlg-btn">Defaults</button>
+        <span class="spacer"></span>
+        <button type="button" id="settingsCancel" class="dlg-btn">Cancel</button>
+        <button type="button" id="settingsSave" class="dlg-btn primary">Save</button>
       </div>
     </div>
   </div>
 
   <div id="toast" class="toast" hidden></div>
 
+  <script src="../shared/i18n-dict.js"></script>
+  <script src="../shared/themes.js"></script>
+  <script src="../shared/file-groups-model.js"></script>
+  <script src="../shared/workbench-layout.js"></script>
   <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script src="icons.js"></script>
+  <script src="i18n.js"></script>
   <script src="monaco-setup.js"></script>
   <script src="markdown-preview.js"></script>
+  <script src="menubar.js"></script>
+  <script src="command-palette.js"></script>
+  <script src="table-viewer.js"></script>
+  <script src="settings-modal.js"></script>
   <script src="dialog-modal.js"></script>
   <script src="app.js"></script>
 </body>

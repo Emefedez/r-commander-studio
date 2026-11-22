@@ -7,12 +7,41 @@ const vendorRoot = path.join(__dirname, '..', 'vendor', 'rcmdr');
 const catalog = require(path.join(vendorRoot, 'catalog'));
 const commands = require(path.join(vendorRoot, 'data', 'commands.json'));
 const tree = require(path.join(vendorRoot, 'data', 'tree.json'));
+const functionsMap = require(path.join(vendorRoot, 'data', 'functions.json'));
 const formmodel = require(path.join(vendorRoot, 'lib', 'formmodel.js'));
 const { context } = require(path.join(vendorRoot, 'lib', 'rhelpers.js'));
 const i18n = require(path.join(vendorRoot, 'lib', 'i18n.js'));
 const report = require(path.join(vendorRoot, 'lib', 'report.js'));
 
 const STATE_FIELDS = new Set(['dataset', 'model', 'models', 'hclust']);
+
+function fold(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function buildMenuPaths(lang = 'en') {
+  const paths = {};
+  let order = 0;
+  const walk = (nodes, trail) => {
+    for (const node of nodes) {
+      if (node.sep) continue;
+      const label = node.label?.[lang] || node.label?.en || node.id || '';
+      if (node.children) {
+        walk(node.children, [...trail, label]);
+      } else {
+        const key = node.target || node.id;
+        if (key && !(key in paths)) {
+          paths[key] = { path: [...trail, label], order: order++, id: node.id, label };
+        }
+      }
+    }
+  };
+  walk(tree, []);
+  return paths;
+}
 
 function describeFields(fields, env) {
   const { t } = env;
@@ -79,11 +108,19 @@ function makeCtx(ds, { state, activeModel, settings = {} } = {}) {
 class RcmdrService {
   constructor() {
     this._sessions = new Map();
-    this._language = 'en';
+    this._language = 'es';
+    this._settings = {
+      cranMirror: 'https://cloud.r-project.org',
+      packageDownloads: '~/.cache/r-commander-studio/packages'
+    };
+    this._menuPathsCache = {
+      en: buildMenuPaths('en'),
+      es: buildMenuPaths('es')
+    };
   }
 
   setLanguage(lang) {
-    this._language = lang === 'es' ? 'es' : 'en';
+    this._language = lang === 'en' ? 'en' : 'es';
     i18n.setLanguage(this._language);
     return this._language;
   }
@@ -92,9 +129,92 @@ class RcmdrService {
     return this._language;
   }
 
+  updateSettings(patch = {}) {
+    Object.assign(this._settings, patch);
+    return { ...this._settings };
+  }
+
   getTree(lang) {
     if (lang) this.setLanguage(lang);
     return tree;
+  }
+
+  /**
+   * Collects every leaf command id reachable from data/tree.json.
+   */
+  getAllTreeCommandIds() {
+    const ids = new Set();
+    const walk = (nodes) => {
+      for (const n of nodes) {
+        if (n.sep) continue;
+        if (n.children) walk(n.children);
+        else if (n.id) ids.add(n.id);
+      }
+    };
+    walk(tree);
+    return ids;
+  }
+
+  /**
+   * Accent-insensitive bilingual search across all 371 R Commander commands (matches EN, ES, menu path, and id).
+   */
+  searchCommands(query = '', lang = this._language) {
+    const words = fold(query).trim().split(/\s+/).filter(Boolean);
+    const items = [];
+    const seen = new Set();
+
+    const walk = (nodes, trailEn = [], trailEs = []) => {
+      for (const node of nodes) {
+        if (node.sep) continue;
+        const enLabel = node.label?.en || node.id || '';
+        const esLabel = node.label?.es || enLabel;
+        if (node.children) {
+          walk(node.children, [...trailEn, enLabel], [...trailEs, esLabel]);
+        } else if (node.id && !seen.has(node.id)) {
+          seen.add(node.id);
+          const haystack = fold([...trailEn, ...trailEs, enLabel, esLabel, node.id].join(' '));
+          if (!words.length || words.every((w) => haystack.includes(w))) {
+            const label = lang === 'es' ? esLabel : enLabel;
+            const pathArr = lang === 'es' ? trailEs : trailEn;
+            items.push({
+              id: node.id,
+              label,
+              labelEn: enLabel,
+              labelEs: esLabel,
+              path: pathArr.join(' ▸ '),
+              color: node.color || ''
+            });
+          }
+        }
+      }
+    };
+    walk(tree);
+    return items;
+  }
+
+  /**
+   * MenuHover parity with r-commander-play/lib/hover.js: maps an R function name to its R Commander menu paths.
+   */
+  getMenuHover(fnName, lang = this._language) {
+    if (!fnName) return null;
+    const clean = String(fnName).split('::').pop();
+    const ids = functionsMap[clean];
+    if (!ids || !ids.length) return null;
+    const paths = this._menuPathsCache[lang === 'es' ? 'es' : 'en'];
+    const entries = ids
+      .filter((id) => paths[id])
+      .sort((a, b) => paths[a].order - paths[b].order)
+      .map((id) => ({
+        id: paths[id].id,
+        path: paths[id].path.join(' ▸ '),
+        label: paths[id].label
+      }));
+    if (!entries.length) return null;
+    return {
+      fn: clean,
+      total: entries.length,
+      entries: entries.slice(0, 6)
+    };
   }
 
   getCatalogSummary() {
@@ -150,7 +270,9 @@ class RcmdrService {
         }
         item.items = item.listFor ? listCache.get(key) || [] : [];
         if (lastFor[item.k] !== item.listFor) {
-          item.set = field.selectAll ? item.items.map((i) => i.value) : item.items.slice(0, 1).map((i) => i.value);
+          item.set = field.selectAll
+            ? item.items.map((i) => i.value)
+            : item.items.slice(0, 1).map((i) => i.value);
           lastFor[item.k] = item.listFor;
         }
         continue;
@@ -170,6 +292,7 @@ class RcmdrService {
 
   async openCommand(id, { state, activeDataset, activeModel, lang, queryFn, settings = {} } = {}) {
     if (lang) this.setLanguage(lang);
+    const mergedSettings = { ...this._settings, ...settings };
     const t = i18n.t;
     const spec = this.getSpec(id);
     const title = this.getTitle(id);
@@ -208,6 +331,14 @@ class RcmdrService {
       }
     }
 
+    // Intercept View / Edit dataset directly into Studio's Interactive Table Viewer!
+    if (id === 'viewDataSet' || id === 'viewData') {
+      return { kind: 'viewTable', name: ds, editable: false, title: ds };
+    }
+    if (id === 'editDataSet') {
+      return { kind: 'viewTable', name: ds, editable: true, title: ds };
+    }
+
     let model = activeModel;
     if (spec.needsModel) {
       const models = state?.models || [];
@@ -222,10 +353,9 @@ class RcmdrService {
       }
     }
 
-    const ctx = makeCtx(ds, { state, activeModel: model, settings });
+    const ctx = makeCtx(ds, { state, activeModel: model, settings: mergedSettings });
     const fields = spec.fields || [];
 
-    // Zero-field commands execute/insert immediately
     if (!fields.length || spec.noForm?.(ctx)) {
       const values = {};
       if (spec.after) {
@@ -272,7 +402,7 @@ class RcmdrService {
       ctx,
       extra,
       dataset: ds,
-      settings
+      settings: mergedSettings
     };
 
     const sessionId = crypto.randomBytes(8).toString('hex');
@@ -315,9 +445,9 @@ class RcmdrService {
       values: rawValues,
       layout: layoutItems,
       strings: {
-        run: t('Run'),
-        insert: t('Insert in Script'),
-        runAndInsert: t('Run & Insert'),
+        run: this._language === 'es' ? 'Ejecutar' : 'Run',
+        insert: this._language === 'es' ? 'Insertar en script' : 'Insert in Script',
+        runAndInsert: this._language === 'es' ? 'Ejecutar e insertar' : 'Run & Insert',
         cancel: t('Cancel'),
         reset: t('Reset'),
         browse: t('Browse...'),
@@ -434,6 +564,13 @@ class RcmdrService {
       };
     }
 
+    // Apply side effects like saving CRAN mirror / package download folder
+    if (spec.apply) {
+      await spec.apply(values, {
+        updateSetting: (k, v) => this.updateSettings({ [k]: v })
+      });
+    }
+
     return {
       ok: true,
       id,
@@ -443,7 +580,8 @@ class RcmdrService {
       dataset: env.dataset || null,
       activeDataset: spec.activeDataset?.(values) || null,
       activeModel: spec.activeModel?.(values) || null,
-      detectNew: Boolean(spec.detectNew)
+      detectNew: Boolean(spec.detectNew),
+      settings: { ...this._settings }
     };
   }
 
@@ -457,6 +595,7 @@ module.exports = {
   catalog,
   commands,
   tree,
+  functionsMap,
   formmodel,
   i18n,
   report,
