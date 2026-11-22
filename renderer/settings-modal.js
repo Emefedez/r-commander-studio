@@ -18,7 +18,7 @@
     skipHelp: true,
     skipCommands: '',
     consoleWrap: true,
-    consoleScroll: true,
+    consoleScroll: false,
     dockPosition: 'bottom',
     runTarget: 'auto',
     loadRcmdrFunctions: true,
@@ -225,7 +225,7 @@
             <input type="text" id="set_skipCommands" value="${String(s.skipCommands || '').replace(/"/g, '&quot;')}" placeholder="fix, View, utils::example">
           </label>
           <label class="settings-check"><input type="checkbox" id="set_consoleWrap"${s.consoleWrap !== false ? ' checked' : ''}> ${t('settingsConsoleWrap')}</label>
-          <label class="settings-check"><input type="checkbox" id="set_consoleScroll"${s.consoleScroll !== false ? ' checked' : ''}> ${t('settingsConsoleScroll')}</label>
+          <label class="settings-check"><input type="checkbox" id="set_consoleScroll"${s.consoleScroll === true ? ' checked' : ''}> ${t('settingsConsoleScroll')}</label>
           <label class="settings-row">
             <span>${t('settingsRunTarget')}</span>
             <select id="set_runTarget">

@@ -540,7 +540,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const s = state.settings;
     for (const out of [$('consoleOut'), $('arfOut')]) {
       out.classList.toggle('nowrap', s.consoleWrap === false);
-      out.classList.toggle('scroll-blocks', s.consoleScroll !== false);
+      out.classList.toggle('scroll-blocks', s.consoleScroll === true);
     }
     const wrapMode = s.editorWordWrap !== false ? 'on' : 'off';
     for (const ed of state.editors) {
@@ -4093,6 +4093,35 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
     if (!mod) return;
     const key = e.key.toLowerCase();
+    // Prevent Ctrl+A from selecting UI chrome when not focused in an input/editor/terminal
+    if (!e.altKey && !e.shiftKey && key === 'a') {
+      const ae = document.activeElement;
+      const inEditable =
+        ae &&
+        (ae.tagName === 'INPUT' ||
+          ae.tagName === 'TEXTAREA' ||
+          ae.isContentEditable ||
+          ae.closest?.('.monaco-editor') ||
+          ae.closest?.('.xterm'));
+      if (!inEditable) {
+        e.preventDefault();
+        const inConsole = ae?.closest?.('#dockConsole') || e.target?.closest?.('#dockConsole');
+        if (inConsole && $('consoleOut')) {
+          const range = document.createRange();
+          range.selectNodeContents($('consoleOut'));
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        } else {
+          const ed = state.editors[state.focusedGroup];
+          if (ed && activeTab()?.kind === 'code') {
+            ed.focus();
+            ed.trigger('keyboard', 'editor.action.selectAll', null);
+          }
+        }
+        return;
+      }
+    }
     // Ctrl + / Ctrl - / Ctrl 0 (no Shift) -> change ONLY Editor text size
     // Ctrl + Shift + + / Ctrl + Shift + - / Ctrl + Shift + 0 -> change both Editor and UI zoom factor
     // Recognizes US, Spanish (BracketRight '+' / '*', Slash '-' / '_', Digit0 '0' / '='), and Numpad keys.
