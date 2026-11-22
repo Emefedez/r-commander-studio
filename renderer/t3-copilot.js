@@ -163,6 +163,7 @@
         const st = await window.studio.t3Status();
         this.status = st;
         this._renderStatusHeader();
+        if (!this.messages.length) this.renderMessages();
       } catch {
         // ignore
       }
