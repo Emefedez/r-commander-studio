@@ -1476,7 +1476,12 @@ boxplot(Sepal.Length ~ Species, data = iris,
         row.querySelector('.ws-act-view').addEventListener('click', (e) => {
           e.stopPropagation();
           dismissPeekAfterSelection('explorer');
-          if (e.shiftKey) popoutDatasetWindow(ds.name);
+          if (e.shiftKey) {
+            popoutDatasetWindow(ds.name);
+            return;
+          }
+          const existing = state.tabs.find((x) => x.kind === 'table' && x.tableConfig?.objectName === ds.name);
+          if (existing) closeTab(existing.id);
           else openRTableTab({ objectName: ds.name, title: ds.name, editable: false });
         });
         row.querySelector('.ws-act-edit').addEventListener('click', (e) => {
