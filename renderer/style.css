@@ -1638,12 +1638,22 @@ header.titlebar {
   min-height: 0;
   width: 100%;
   height: 100%;
-  padding: 4px 6px;
+  padding: 4px 6px 0;
   background: var(--bg-editor);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .arf-xterm-host .xterm {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   height: 100%;
+  background: var(--bg-editor) !important;
+}
+.arf-xterm-host .xterm-viewport,
+.arf-xterm-host .xterm-screen {
+  background-color: var(--bg-editor) !important;
 }
 .console-out.nowrap { white-space: pre; overflow-x: auto; }
 .console-block {

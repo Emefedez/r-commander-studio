@@ -105,11 +105,26 @@ else:
         process.env.R_BROWSER ||
         process.env.BROWSER ||
         (process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open');
-      const proc = spawn('python3', ['-u', '-c', pyBridge, this.arfPath], {
-        cwd: this.cwd,
-        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', LC_ALL: 'C.UTF-8', R_BROWSER: defaultBrowser },
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
+      const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', LC_ALL: 'C.UTF-8', R_BROWSER: defaultBrowser };
+
+      let proc;
+      if (process.platform === 'win32') {
+        // Windows does not have Unix python3 pty/termios/fcntl; spawn arf directly with piped stdio
+        proc = spawn(this.arfPath, [], {
+          cwd: this.cwd,
+          env,
+          windowsHide: true,
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+      } else {
+        // macOS & Linux: use Python3 stdlib pty for full interactive VT100/resize support, fallback to direct spawn if python3 missing
+        const pyBin = process.platform === 'darwin' && require('node:fs').existsSync('/usr/bin/python3') ? '/usr/bin/python3' : 'python3';
+        proc = spawn(pyBin, ['-u', '-c', pyBridge, this.arfPath], {
+          cwd: this.cwd,
+          env,
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+      }
       this._proc = proc;
       this._running = true;
       this.emit('status', 'ready');
@@ -155,7 +170,7 @@ else:
   }
 
   resize(cols, rows) {
-    if (!this._proc || !this._running) return false;
+    if (process.platform === 'win32' || !this._proc || !this._running) return false;
     const c = Math.max(20, Math.min(400, Math.round(Number(cols) || 100)));
     const r = Math.max(4, Math.min(200, Math.round(Number(rows) || 24)));
     try {

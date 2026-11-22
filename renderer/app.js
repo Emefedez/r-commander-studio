@@ -1170,11 +1170,24 @@ boxplot(Sepal.Length ~ Species, data = iris,
     fitArfXterm();
   }
 
+  function syncArfXtermTheme() {
+    if (!arfTerm) return;
+    const cs = getComputedStyle(document.documentElement);
+    const bg = cs.getPropertyValue('--bg-editor').trim() || '#282A36';
+    const fg = cs.getPropertyValue('--fg').trim() || '#F8F8F2';
+    arfTerm.options.theme = {
+      ...(arfTerm.options.theme || {}),
+      background: bg,
+      foreground: fg
+    };
+  }
+
   function fitArfXterm() {
     if (!arfTerm || !arfFitAddon) return;
     const host = $('arfXtermHost');
     if (!host || host.offsetParent === null || host.clientWidth < 30 || host.clientHeight < 30) return;
     try {
+      syncArfXtermTheme();
       arfFitAddon.fit();
       window.studio?.arfResize?.({ cols: arfTerm.cols, rows: arfTerm.rows });
     } catch {
@@ -1195,6 +1208,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     initArfXterm();
     requestAnimationFrame(() => {
       fitArfXterm();
+      setTimeout(fitArfXterm, 60);
       arfTerm?.focus();
     });
     if (state.arfStarted) return true;
@@ -1443,6 +1457,18 @@ boxplot(Sepal.Length ~ Species, data = iris,
       return;
     }
 
+    const removeFromEnvironment = async (objName) => {
+      if (!objName) return;
+      const isEs = getLang() === 'es';
+      const msg = isEs
+        ? `¿Eliminar "${objName}" del entorno de R? (rm("${objName}"))`
+        : `Remove "${objName}" from the R Environment? (rm("${objName}"))`;
+      if (!window.confirm(msg)) return;
+      const existing = state.tabs.find((x) => x.kind === 'table' && x.tableConfig?.objectName === objName);
+      if (existing) closeTab(existing.id);
+      await executeR(`rm(list = ${JSON.stringify(objName)}, envir = .GlobalEnv)`, { label: `rm(${objName})`, fromMenu: true });
+    };
+
     if (dsEntries.length) {
       const gh = document.createElement('div');
       gh.className = 'ws-group-row';
@@ -1452,6 +1478,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
       for (const ds of dsEntries) {
         const row = document.createElement('div');
         row.className = `ws-item-row${ds.name === state.activeDataset ? ' active' : ''}`;
+        const rmTitle = getLang() === 'es' ? `Eliminar ${ds.name} del entorno` : `Remove ${ds.name} from Environment`;
         row.innerHTML =
           `<span class="ws-item-name"></span>` +
           `<span class="ws-item-meta">${ds.rows} x ${ds.columns}</span>` +
@@ -1459,6 +1486,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
           `<button type="button" class="icon-btn ws-act-view" title="${t('viewDataTitle')}">${svg('eye', { size: 13 })}</button>` +
           `<button type="button" class="icon-btn ws-act-edit" title="${t('editDataTitle')}">${svg('edit', { size: 13 })}</button>` +
           `<button type="button" class="icon-btn ws-act-sum" title="${t('summaryDataTitle')}">${svg('list-summary', { size: 13 })}</button>` +
+          `<button type="button" class="icon-btn ws-act-rm" title="${rmTitle}">${svg('close', { size: 12 })}</button>` +
           `</span>`;
         row.querySelector('.ws-item-name').textContent = ds.name;
 
@@ -1494,6 +1522,35 @@ boxplot(Sepal.Length ~ Species, data = iris,
           openPanelTab('console');
           executeR(`summary(${ds.name})`, { label: `summary(${ds.name})`, fromMenu: true });
         });
+        row.querySelector('.ws-act-rm').addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeFromEnvironment(ds.name);
+        });
+        row.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const isEs = getLang() === 'es';
+          const existing = state.tabs.find((x) => x.kind === 'table' && x.tableConfig?.objectName === ds.name);
+          showContextMenu(e.clientX, e.clientY, [
+            {
+              icon: 'eye',
+              label: existing ? (isEs ? 'Ocultar tabla' : 'Hide Table') : isEs ? 'Ver tabla' : 'View Table',
+              action: () => (existing ? closeTab(existing.id) : openRTableTab({ objectName: ds.name, title: ds.name, editable: false }))
+            },
+            { icon: 'edit', label: isEs ? 'Editar tabla' : 'Edit Table', action: () => openRTableTab({ objectName: ds.name, title: ds.name, editable: true }) },
+            {
+              icon: 'list-summary',
+              label: `summary(${ds.name})`,
+              action: () => {
+                openPanelTab('console');
+                executeR(`summary(${ds.name})`, { label: `summary(${ds.name})`, fromMenu: true });
+              }
+            },
+            { icon: 'new-window', label: isEs ? 'Abrir en ventana nueva' : 'Open in New Window', action: () => popoutDatasetWindow(ds.name) },
+            { sep: true },
+            { icon: 'clear', label: isEs ? 'Eliminar del entorno...' : 'Remove from Environment...', action: () => removeFromEnvironment(ds.name) }
+          ]);
+        });
         row.addEventListener('click', (e) => {
           if (e.shiftKey) {
             e.preventDefault();
@@ -1518,15 +1575,40 @@ boxplot(Sepal.Length ~ Species, data = iris,
       for (const m of models) {
         const row = document.createElement('div');
         row.className = `ws-item-row${m.name === state.activeModel ? ' active' : ''}`;
+        const rmTitle = getLang() === 'es' ? `Eliminar ${m.name} del entorno` : `Remove ${m.name} from Environment`;
         row.innerHTML =
           `<span class="ws-item-name"></span><span class="ws-item-meta"></span>` +
-          `<span class="ws-item-actions"><button type="button" class="icon-btn ws-act-sum" title="${t('summaryModelTitle')}">${svg('list-summary', { size: 13 })}</button></span>`;
+          `<span class="ws-item-actions">` +
+          `<button type="button" class="icon-btn ws-act-sum" title="${t('summaryModelTitle')}">${svg('list-summary', { size: 13 })}</button>` +
+          `<button type="button" class="icon-btn ws-act-rm" title="${rmTitle}">${svg('close', { size: 12 })}</button>` +
+          `</span>`;
         row.querySelector('.ws-item-name').textContent = m.name;
         row.querySelector('.ws-item-meta').textContent = m.cls;
         row.querySelector('.ws-act-sum').addEventListener('click', (e) => {
           e.stopPropagation();
           openPanelTab('console');
           executeR(`summary(${m.name})`, { label: `summary(${m.name})`, fromMenu: true });
+        });
+        row.querySelector('.ws-act-rm').addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeFromEnvironment(m.name);
+        });
+        row.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const isEs = getLang() === 'es';
+          showContextMenu(e.clientX, e.clientY, [
+            {
+              icon: 'list-summary',
+              label: `summary(${m.name})`,
+              action: () => {
+                openPanelTab('console');
+                executeR(`summary(${m.name})`, { label: `summary(${m.name})`, fromMenu: true });
+              }
+            },
+            { sep: true },
+            { icon: 'clear', label: isEs ? 'Eliminar del entorno...' : 'Remove from Environment...', action: () => removeFromEnvironment(m.name) }
+          ]);
         });
         row.addEventListener('click', () => {
           state.activeModel = m.name;
@@ -1546,8 +1628,33 @@ boxplot(Sepal.Length ~ Species, data = iris,
       for (const name of otherObjs) {
         const row = document.createElement('div');
         row.className = 'ws-item-row';
-        row.innerHTML = `<span class="ws-item-name"></span><span class="ws-item-meta">${t('wsObjectKind')}</span>`;
+        const rmTitle = getLang() === 'es' ? `Eliminar ${name} del entorno` : `Remove ${name} from Environment`;
+        row.innerHTML =
+          `<span class="ws-item-name"></span><span class="ws-item-meta">${t('wsObjectKind')}</span>` +
+          `<span class="ws-item-actions"><button type="button" class="icon-btn ws-act-rm" title="${rmTitle}">${svg('close', { size: 12 })}</button></span>`;
         row.querySelector('.ws-item-name').textContent = name;
+        row.querySelector('.ws-act-rm').addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeFromEnvironment(name);
+        });
+        row.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const isEs = getLang() === 'es';
+          showContextMenu(e.clientX, e.clientY, [
+            { icon: 'eye', label: isEs ? 'Ver objeto' : 'Inspect Object', action: () => openRTableTab({ objectName: name, title: name, editable: false }) },
+            {
+              icon: 'terminal',
+              label: isEs ? `Imprimir ${name} en consola` : `Print ${name} in Console`,
+              action: () => {
+                openPanelTab('console');
+                executeR(name, { label: name, fromMenu: true });
+              }
+            },
+            { sep: true },
+            { icon: 'clear', label: isEs ? 'Eliminar del entorno...' : 'Remove from Environment...', action: () => removeFromEnvironment(name) }
+          ]);
+        });
         row.addEventListener('click', () => openRTableTab({ objectName: name, title: name, editable: false }));
         host.append(row);
       }
@@ -2031,6 +2138,14 @@ boxplot(Sepal.Length ~ Species, data = iris,
       });
       el.append(closeBtn);
 
+      el.addEventListener('dblclick', (e) => {
+        const ns = el.querySelector('.tab-name');
+        if (ns && (e.target === ns || e.target === el)) {
+          e.stopPropagation();
+          startInlineTabRename(tab, ns);
+        }
+      });
+
       el.addEventListener('click', (e) => {
         if (e.shiftKey) {
           e.preventDefault();
@@ -2041,6 +2156,70 @@ boxplot(Sepal.Length ~ Species, data = iris,
       });
       bar.append(el);
     }
+  }
+
+  async function applyTabRename(tab, nextName) {
+    const clean = String(nextName || '').trim();
+    if (!tab || !clean || clean === tab.name) return;
+    if (tab.filePath) {
+      const res = await window.studio.renamePath({ oldPath: tab.filePath, newName: clean });
+      if (res?.ok && res.newPath) {
+        tab.filePath = res.newPath;
+        tab.name = clean;
+        await refreshFolderTree();
+      } else if (res?.error) {
+        showToast(res.error, 'error');
+        return;
+      }
+    } else {
+      tab.name = clean;
+    }
+    if (tab.kind === 'code') {
+      tab.language = detectLanguage(tab.name);
+      if (tab.model && window.monaco?.editor) {
+        const monacoLang = tab.language === 'r' ? 'r' : tab.language === 'rmd' || tab.language === 'md' ? 'markdown' : 'plaintext';
+        window.monaco.editor.setModelLanguage(tab.model, monacoLang);
+      }
+    }
+    renderTabs(tab.groupIndex);
+    renderBreadcrumb(tab.groupIndex);
+    renderFileGroupsPanel();
+  }
+
+  function startInlineTabRename(tab, nameSpan) {
+    if (!tab || !nameSpan || nameSpan.parentElement?.querySelector('.fs-rename-input')) return;
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'fs-rename-input';
+    inp.value = tab.name;
+    nameSpan.hidden = true;
+    nameSpan.insertAdjacentElement('afterend', inp);
+    inp.focus();
+    const dotIdx = tab.name.lastIndexOf('.');
+    inp.setSelectionRange(0, dotIdx > 0 ? dotIdx : tab.name.length);
+    let done = false;
+    const finish = async (commit) => {
+      if (done) return;
+      done = true;
+      const next = inp.value.trim();
+      inp.remove();
+      nameSpan.hidden = false;
+      if (commit && next && next !== tab.name) {
+        await applyTabRename(tab, next);
+      }
+    };
+    inp.addEventListener('click', (ev) => ev.stopPropagation());
+    inp.addEventListener('dblclick', (ev) => ev.stopPropagation());
+    inp.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        finish(true);
+      } else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        finish(false);
+      }
+    });
+    inp.addEventListener('blur', () => finish(true));
   }
 
   // --- File Groups & Folder Tree ---
@@ -2111,6 +2290,10 @@ boxplot(Sepal.Length ~ Species, data = iris,
           const nameSpan = document.createElement('span');
           nameSpan.className = 'fg-item-name';
           nameSpan.textContent = tab.name;
+          nameSpan.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startInlineTabRename(tab, nameSpan);
+          });
 
           const paneTag = document.createElement('span');
           paneTag.className = 'fg-pane-tag';
@@ -2152,6 +2335,23 @@ boxplot(Sepal.Length ~ Species, data = iris,
           row.addEventListener('click', () => {
             dismissPeekAfterSelection('explorer');
             activateTab(tab.id);
+          });
+          row.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const isEs = getLang() === 'es';
+            showContextMenu(e.clientX, e.clientY, [
+              { icon: 'file', label: isEs ? 'Abrir / enfocar' : 'Open / Focus', action: () => activateTab(tab.id) },
+              { icon: 'edit', label: isEs ? 'Renombrar' : 'Rename', action: () => startInlineTabRename(tab, nameSpan) },
+              { icon: 'save', label: isEs ? 'Guardar como...' : 'Save As...', action: () => { activateTab(tab.id); saveFileAction(true); } },
+              { icon: 'split', label: isEs ? 'Mover al otro editor' : 'Move to Other Split', action: () => moveTabToGroup(tab.id, tab.groupIndex === 0 ? 1 : 0) },
+              ...(tab.filePath
+                ? [{ icon: 'copy', label: isEs ? 'Copiar ruta' : 'Copy Path', action: () => navigator.clipboard.writeText(tab.filePath) }]
+                : []),
+              { icon: 'new-window', label: isEs ? 'Abrir en ventana nueva' : 'Open in New Window', action: () => popoutTabWindow(tab) },
+              { sep: true },
+              { icon: 'close', label: isEs ? 'Cerrar pestaña' : 'Close Tab', action: () => closeTab(tab.id) }
+            ]);
           });
           host.append(row);
         }
@@ -4535,6 +4735,42 @@ boxplot(Sepal.Length ~ Species, data = iris,
     applySettingsUI();
   });
 
+  $('workspaceContent')?.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.ws-item-row')) return;
+    e.preventDefault();
+    const isEs = getLang() === 'es';
+    showContextMenu(e.clientX, e.clientY, [
+      { icon: 'refresh', label: isEs ? 'Actualizar entorno' : 'Refresh Environment', action: () => $('btnRefreshWs')?.click() },
+      { icon: 'folder-open', label: isEs ? 'Cargar .RData / datos...' : 'Load .RData / Data...', action: () => $('btnWsLoadRData')?.click() },
+      { icon: 'save', label: isEs ? 'Guardar entorno como...' : 'Save Environment As...', action: () => $('btnWsSaveRData')?.click() },
+      { sep: true },
+      {
+        icon: 'clear',
+        label: isEs ? 'Limpiar todo el entorno (rm)...' : 'Clear All Environment (rm)...',
+        action: async () => {
+          const msg = isEs
+            ? '¿Eliminar TODOS los objetos del entorno de R? (rm(list = ls()))'
+            : 'Remove ALL objects from the R Environment? (rm(list = ls()))';
+          if (!window.confirm(msg)) return;
+          await executeR('rm(list = ls(envir = .GlobalEnv), envir = .GlobalEnv)', { label: 'rm(list = ls())', fromMenu: true });
+        }
+      }
+    ]);
+  });
+
+  $('fileGroupsList')?.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.fg-item')) return;
+    e.preventDefault();
+    const isEs = getLang() === 'es';
+    showContextMenu(e.clientX, e.clientY, [
+      { icon: 'new-file', label: isEs ? 'Nuevo script R' : 'New R Script', action: () => handleStudioCommand('new-r') },
+      { icon: 'markdown', label: isEs ? 'Nuevo R Markdown (.Rmd)' : 'New R Markdown (.Rmd)', action: () => handleStudioCommand('new-rmd') },
+      { icon: 'file', label: isEs ? 'Abrir archivo...' : 'Open File...', action: () => openFileAction() },
+      { sep: true },
+      { icon: 'group', label: isEs ? 'Nuevo grupo de archivos...' : 'New File Group...', action: () => $('btnNewFileGroup')?.click() }
+    ]);
+  });
+
   // Right-click context menus: File Explorer background, Console, arf, Plots, Editor Tabs
   $('folderTree')?.addEventListener('contextmenu', (e) => {
     if (e.target.closest('.fs-row')) return;
@@ -4657,6 +4893,18 @@ boxplot(Sepal.Length ~ Species, data = iris,
       if (!tab) return;
       const isEs = getLang() === 'es';
       showContextMenu(e.clientX, e.clientY, [
+        {
+          icon: 'edit',
+          label: isEs ? 'Renombrar' : 'Rename',
+          action: () => {
+            const ns = itemEl.querySelector('.tab-name');
+            if (ns) startInlineTabRename(tab, ns);
+            else {
+              const next = window.prompt(t('renamePrompt'), tab.name);
+              if (next) applyTabRename(tab, next);
+            }
+          }
+        },
         { icon: 'close', label: isEs ? 'Cerrar pestaña' : 'Close Tab', action: () => closeTab(tab.id) },
         {
           icon: 'close',
