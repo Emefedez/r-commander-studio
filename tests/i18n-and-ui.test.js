@@ -265,3 +265,17 @@ test('T3CodeService probes status and provides R Copilot fixes and explanations'
   assert.match(fixRes.code, /is\.na\(x\)/);
   assert.match(fixRes.code, /TRUE/);
 });
+
+test('workbench layout: placeSidebar docks and orders sidebars, and survives a save/load', () => {
+  const layout = new WorkbenchLayoutModel();
+  layout.placeSidebar('rcmdr', 'left', 'explorer');
+  assert.deepEqual(layout.getSidebarsOn('left'), ['rcmdr', 'explorer']);
+  layout.placeSidebar('rcmdr', 'left', null);
+  assert.deepEqual(layout.getSidebarsOn('left'), ['explorer', 'rcmdr']);
+  layout.placeSidebar('explorer', 'right', 'start');
+  assert.deepEqual(layout.getSidebarsOn('right'), ['explorer']);
+  assert.deepEqual(layout.getSidebarsOn('left'), ['rcmdr']);
+  const restored = new WorkbenchLayoutModel(JSON.parse(JSON.stringify(layout.serialize())));
+  assert.deepEqual(restored.sidebarOrder, layout.sidebarOrder);
+  assert.equal(restored.sidebars.explorer.dock, 'right');
+});

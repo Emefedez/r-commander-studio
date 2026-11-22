@@ -70,7 +70,7 @@
     <!-- Left Dock (hosts side-by-side sidebars and/or panel docked left) -->
     <div class="side-dock dock-left" id="dockLeft">
       <aside class="dockable-sidebar" id="sidebarExplorer" data-sidebar="explorer">
-        <div class="sidebar-titlebar" draggable="true" data-drag-panel="explorer" data-i18n-title="dragToDockHint">
+        <div class="sidebar-titlebar" data-drag-panel="explorer" data-i18n-title="dragToDockHint">
           <span class="sidebar-title-text" data-i18n="sidebarExplorerTitle">Archivos y Entorno</span>
           <span class="spacer"></span>
           <button type="button" id="btnFlipExplorer" class="icon-btn" data-icon="dock-right" data-size="14" data-i18n-title="moveSidebarRight"></button>
@@ -205,7 +205,7 @@
       <!-- Bottom Dock (hosts Dockable Panel by default) -->
       <div class="bottom-dock-slot" id="dockBottom">
         <section class="dock-panel orient-horizontal" id="dockPanel">
-          <div class="panel-header" draggable="true" data-drag-panel="panel" data-i18n-title="dragToDockHint">
+          <div class="panel-header" data-drag-panel="panel" data-i18n-title="dragToDockHint">
             <div class="panel-tabs" id="panelTabs">
               <button type="button" class="panel-tab active" data-dock="console">
                 <span class="ico" data-icon="terminal" data-size="13"></span>
@@ -229,6 +229,13 @@
                 <span class="ico" data-icon="book" data-size="13"></span>
                 <span class="panel-tab-label" data-i18n="dockHelp">Ayuda</span>
               </button>
+            </div>
+            <div class="panel-secondary-title" id="panelSecondaryTitle" hidden>
+              <span class="panel-secondary-tab" id="panelSecondaryTab">
+                <span class="ico" id="panelSecondaryIco"></span>
+                <span class="panel-tab-label" id="panelSecondaryLabel"></span>
+              </span>
+              <button type="button" id="btnPanelSplitClose" class="icon-btn" data-icon="close" data-size="12" data-i18n-title="closeSplitPanelBtn"></button>
             </div>
             <div class="panel-actions">
               <button type="button" id="btnPanelLimitOutput" class="icon-btn active" data-icon="truncate" data-size="14" data-i18n-title="settingsLimitOutput"></button>
@@ -321,11 +328,6 @@
             </div>
             <div class="v-grip" id="panelSplitGrip" hidden></div>
             <div class="panel-secondary-col" id="panelSecondaryCol" hidden>
-              <div class="panel-split-bar">
-                <select id="panelSplitSelect" class="panel-split-select" aria-label="Secondary dock tab"></select>
-                <span class="spacer"></span>
-                <button type="button" id="btnPanelSplitClose" class="icon-btn" data-icon="close" data-size="13" data-i18n-title="closeSplitPanelBtn"></button>
-              </div>
               <div class="panel-secondary-host" id="panelSecondaryHost"></div>
             </div>
           </div>
@@ -337,7 +339,7 @@
     <div class="v-grip" id="rightDockGrip"></div>
     <div class="side-dock dock-right" id="dockRight">
       <aside class="dockable-sidebar" id="sidebarRcmdr" data-sidebar="rcmdr">
-        <div class="sidebar-titlebar" draggable="true" data-drag-panel="rcmdr" data-i18n-title="dragToDockHint">
+        <div class="sidebar-titlebar" data-drag-panel="rcmdr" data-i18n-title="dragToDockHint">
           <span class="sidebar-title-text" data-i18n="sidebarRcmdrTitle">R Commander</span>
           <span class="spacer"></span>
           <button type="button" id="btnRcmdrInstallPkg" class="icon-btn" data-icon="package" data-size="14" data-i18n-title="rcmdrInstallPkgBtn"></button>

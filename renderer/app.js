@@ -310,8 +310,6 @@ boxplot(Sepal.Length ~ Species, data = iris,
       el.classList.toggle('peek-right', peeking && cfg.dock === 'right');
       el.hidden = !cfg.open && !peeking;
 
-      const targetDock = cfg.dock === 'right' ? dockRight : dockLeft;
-      if (el.parentElement !== targetDock) targetDock.append(el);
 
       // Render collapsed peek rail button when closed
       if (!cfg.open) {
@@ -329,6 +327,21 @@ boxplot(Sepal.Length ~ Species, data = iris,
           applyWorkbenchLayout();
         });
         rail.append(btn);
+      }
+    }
+
+    // Place sidebars into their docks following the user's left-to-right order.
+    for (const [side, dockEl] of [
+      ['left', dockLeft],
+      ['right', dockRight]
+    ]) {
+      const want = L.sidebarOrder
+        .filter((id) => L.sidebars[id].dock === side)
+        .map((id) => (id === 'explorer' ? sbExplorer : sbRcmdr));
+      const have = [...dockEl.children].filter((c) => c.classList.contains('dockable-sidebar'));
+      if (want.length !== have.length || want.some((el, i) => el !== have[i])) {
+        const anchor = panel.parentElement === dockEl ? panel : null;
+        for (const el of want) dockEl.insertBefore(el, anchor);
       }
     }
 
@@ -480,62 +493,395 @@ boxplot(Sepal.Length ~ Species, data = iris,
     });
   }
 
-  // --- Drag-and-Drop Workbench Docking (Sidebars + Panel) ---
+  // --- Drag-and-Drop Workbench Docking (Sidebars, Panel, Panel Tabs) ---
+  // Pointer-event based (not native HTML5 DnD): native drag in Electron on
+  // Wayland is unreliable and could get stuck after the first drop.
+  const LAYOUT_LOCK_KEY = 'rcs-layout-locked';
+  const PANEL_TAB_ORDER_KEY = 'rcs-panel-tab-order';
+  const isLayoutLocked = () => localStorage.getItem(LAYOUT_LOCK_KEY) === '1';
+  function applyLayoutLockUI() {
+    document.body.classList.toggle('layout-locked', isLayoutLocked());
+  }
+
+  function restorePanelTabOrder() {
+    const strip = $('panelTabs');
+    if (!strip) return;
+    let order = [];
+    try {
+      order = JSON.parse(localStorage.getItem(PANEL_TAB_ORDER_KEY) || '[]');
+    } catch {
+      order = [];
+    }
+    if (!Array.isArray(order)) return;
+    for (const key of order) {
+      const btn = strip.querySelector(`.panel-tab[data-dock="${CSS.escape(String(key))}"]`);
+      if (btn) strip.append(btn);
+    }
+  }
+
+  function savePanelTabOrder() {
+    const keys = [...document.querySelectorAll('#panelTabs .panel-tab[data-dock]')].map((b) => b.dataset.dock);
+    localStorage.setItem(PANEL_TAB_ORDER_KEY, JSON.stringify(keys));
+  }
+
+  // FLIP animation helper: animates elements from their old to new positions.
+  function animateReflow(els, mutate) {
+    const before = new Map(els.map((el) => [el, el.getBoundingClientRect()]));
+    mutate();
+    for (const el of els) {
+      const a = before.get(el);
+      const b = el.getBoundingClientRect();
+      const dx = a.left - b.left;
+      const dy = a.top - b.top;
+      if (!dx && !dy) continue;
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
+        duration: 180,
+        easing: 'cubic-bezier(0.2, 0, 0, 1)'
+      });
+    }
+  }
+
+  function dropDockTab(key, isRight) {
+    if (isRight) {
+      if (key === state.activePanelTab && splitPanelTab) {
+        const oldRight = splitPanelTab;
+        state.activePanelTab = oldRight;
+        setSplitPanelTab(key);
+      } else if (key === state.activePanelTab) {
+        // Dragging the visible tab to the right: the previous companion stays left.
+        const companion = key === 'console' ? 'plots' : 'console';
+        state.activePanelTab = companion;
+        setSplitPanelTab(key);
+      } else {
+        setSplitPanelTab(key);
+      }
+    } else if (splitPanelTab === key) {
+      const oldLeft = state.activePanelTab;
+      state.activePanelTab = key;
+      setSplitPanelTab(oldLeft);
+    } else {
+      openPanelTab(key);
+    }
+    if (key === 'arf') ensureArfStarted();
+  }
+
   function wireWorkbenchDragDock() {
-    let draggingWhat = null; // 'explorer' | 'rcmdr' | 'panel'
     const zLeft = $('dropZoneLeft');
     const zRight = $('dropZoneRight');
     const zBottom = $('dropZoneBottom');
+    const zones = [
+      [zLeft, 'left'],
+      [zRight, 'right'],
+      [zBottom, 'bottom']
+    ];
+    const sidebarEls = { explorer: $('sidebarExplorer'), rcmdr: $('sidebarRcmdr') };
+    const dockPanel = $('dockPanel');
+    const panelBody = $('panelBody');
+    const tabStrip = $('panelTabs');
+    const THRESHOLD = 5;
 
-    const hideZones = () => {
-      zLeft.hidden = true;
-      zRight.hidden = true;
-      zBottom.hidden = true;
-      zLeft.classList.remove('drag-over');
-      zRight.classList.remove('drag-over');
-      zBottom.classList.remove('drag-over');
-      draggingWhat = null;
+    const ghost = document.createElement('div');
+    ghost.className = 'dock-drag-ghost';
+    ghost.hidden = true;
+    document.body.append(ghost);
+
+    const splitPreview = document.createElement('div');
+    splitPreview.className = 'dock-split-preview';
+    splitPreview.hidden = true;
+    panelBody?.append(splitPreview);
+
+    const insertMarker = document.createElement('div');
+    insertMarker.className = 'panel-tab-insert-marker';
+    insertMarker.hidden = true;
+    document.body.append(insertMarker);
+
+    let drag = null; // { kind: 'sidebar'|'panel'|'tab', id, startX, startY, active, pointerId, handle, target }
+    let suppressClickUntil = 0;
+
+    // Swallow the click that follows a real drag (so buttons/tabs don't fire).
+    document.addEventListener(
+      'click',
+      (e) => {
+        if (Date.now() < suppressClickUntil) {
+          e.stopPropagation();
+          e.preventDefault();
+        }
+      },
+      true
+    );
+
+    const inRect = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    const visibleRect = (el) => (el && !el.hidden && el.offsetParent !== null ? el.getBoundingClientRect() : null);
+
+    const clearIndicators = () => {
+      for (const [z] of zones) z.classList.remove('drag-over');
+      for (const el of Object.values(sidebarEls)) {
+        el.classList.remove('sb-drop-before', 'sb-drop-after', 'sb-drop-vertical');
+      }
+      splitPreview.hidden = true;
+      splitPreview.classList.remove('side-left', 'side-right', 'show');
+      insertMarker.hidden = true;
     };
 
-    for (const handle of document.querySelectorAll('[data-drag-panel]')) {
-      handle.addEventListener('dragstart', (e) => {
-        if (e.target.closest('.panel-tab, button, input, select')) {
-          return;
-        }
-        draggingWhat = handle.getAttribute('data-drag-panel');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', draggingWhat);
+    const endDrag = () => {
+      if (!drag) return;
+      try {
+        drag.handle.releasePointerCapture?.(drag.pointerId);
+      } catch {
+        /* already released */
+      }
+      for (const [z] of zones) z.hidden = true;
+      clearIndicators();
+      ghost.hidden = true;
+      ghost.classList.remove('show');
+      document.body.classList.remove('dock-dragging');
+      drag.source?.classList.remove('dock-drag-source');
+      drag = null;
+    };
+
+    const ghostLabel = (kind, id) => {
+      if (kind === 'sidebar') return id === 'explorer' ? t('sidebarExplorerTitle') : t('sidebarRcmdrTitle');
+      if (kind === 'tab') {
+        return document.querySelector(`.panel-tab[data-dock="${id}"] .panel-tab-label`)?.textContent || id;
+      }
+      return t('togglePanel');
+    };
+
+    const activate = () => {
+      drag.active = true;
+      document.body.classList.add('dock-dragging');
+      ghost.textContent = ghostLabel(drag.kind, drag.id);
+      ghost.hidden = false;
+      requestAnimationFrame(() => ghost.classList.add('show'));
+      if (drag.kind === 'sidebar') {
+        drag.source = sidebarEls[drag.id];
         zLeft.hidden = false;
         zRight.hidden = false;
-        zBottom.hidden = draggingWhat !== 'panel';
-      });
-      handle.addEventListener('dragend', hideZones);
-    }
-
-    const bindZone = (zoneEl, targetDock) => {
-      zoneEl.addEventListener('dragover', (e) => {
-        if (!draggingWhat) return;
-        e.preventDefault();
-        zoneEl.classList.add('drag-over');
-      });
-      zoneEl.addEventListener('dragleave', () => zoneEl.classList.remove('drag-over'));
-      zoneEl.addEventListener('drop', (e) => {
-        if (!draggingWhat) return;
-        e.preventDefault();
-        const what = draggingWhat;
-        hideZones();
-        if (what === 'panel') {
-          state.layout.setPanelDock(targetDock);
-        } else if ((what === 'explorer' || what === 'rcmdr') && (targetDock === 'left' || targetDock === 'right')) {
-          state.layout.setSidebarDock(what, targetDock);
-        }
-        applyWorkbenchLayout();
-      });
+      } else if (drag.kind === 'panel') {
+        drag.source = dockPanel;
+        zLeft.hidden = false;
+        zRight.hidden = false;
+        zBottom.hidden = false;
+      } else if (drag.kind === 'tab') {
+        drag.source = drag.handle;
+      }
+      drag.source?.classList.add('dock-drag-source');
     };
 
-    bindZone(zLeft, 'left');
-    bindZone(zRight, 'right');
-    bindZone(zBottom, 'bottom');
+    // --- Hit testing per drag kind ---
+    const hitZones = (x, y, allowed) => {
+      for (const [z, side] of zones) {
+        if (!allowed.includes(side) || z.hidden) continue;
+        if (inRect(z.getBoundingClientRect(), x, y)) return { z, side };
+      }
+      return null;
+    };
+
+    const computeSidebarTarget = (x, y) => {
+      const zone = hitZones(x, y, ['left', 'right']);
+      if (zone) {
+        return { side: zone.side, before: zone.side === 'left' ? 'start' : null, zone: zone.z };
+      }
+      for (const [otherId, el] of Object.entries(sidebarEls)) {
+        if (otherId === drag.id) continue;
+        const r = visibleRect(el);
+        if (!r || !inRect(r, x, y)) continue;
+        const side = state.layout.sidebars[otherId].dock;
+        // Two sidebars on one side stack vertically unless the panel shares that dock.
+        const vertical = !(state.layout.panel.open && state.layout.panel.dock === side);
+        const first = vertical ? y < r.top + r.height / 2 : x < r.left + r.width / 2;
+        const order = state.layout.sidebarOrder.filter((i) => i !== drag.id);
+        const after = order[order.indexOf(otherId) + 1] || null;
+        return { side, before: first ? otherId : after, over: el, first, vertical };
+      }
+      return null;
+    };
+
+    const computeTabTarget = (x, y) => {
+      const stripRect = visibleRect(tabStrip);
+      const vertical = dockPanel.classList.contains('orient-vertical');
+      if (stripRect && inRect(stripRect, x, y)) {
+        const tabs = [...tabStrip.querySelectorAll('.panel-tab[data-dock]')].filter(
+          (b) => b.dataset.dock !== drag.id && !b.classList.contains('split-hidden')
+        );
+        let beforeEl = null;
+        for (const b of tabs) {
+          const r = b.getBoundingClientRect();
+          if (vertical ? y < r.top + r.height / 2 : x < r.left + r.width / 2) {
+            beforeEl = b;
+            break;
+          }
+        }
+        return { reorder: true, beforeEl, vertical, tabs };
+      }
+      const bodyRect = visibleRect(panelBody);
+      if (bodyRect && inRect(bodyRect, x, y)) {
+        return { split: true, isRight: x > bodyRect.left + bodyRect.width / 2 };
+      }
+      return null;
+    };
+
+    const showTarget = (x, y) => {
+      clearIndicators();
+      if (drag.kind === 'sidebar') {
+        const tgt = computeSidebarTarget(x, y);
+        drag.target = tgt;
+        if (tgt?.zone) tgt.zone.classList.add('drag-over');
+        if (tgt?.over) {
+          tgt.over.classList.add(tgt.first ? 'sb-drop-before' : 'sb-drop-after');
+          tgt.over.classList.toggle('sb-drop-vertical', tgt.vertical);
+        }
+      } else if (drag.kind === 'panel') {
+        const zone = hitZones(x, y, ['left', 'right', 'bottom']);
+        drag.target = zone;
+        zone?.z.classList.add('drag-over');
+      } else if (drag.kind === 'tab') {
+        const tgt = computeTabTarget(x, y);
+        drag.target = tgt;
+        if (tgt?.reorder) {
+          const ref = tgt.beforeEl || tgt.tabs[tgt.tabs.length - 1];
+          if (ref) {
+            const r = ref.getBoundingClientRect();
+            const atEnd = !tgt.beforeEl;
+            insertMarker.classList.toggle('vertical', tgt.vertical);
+            if (tgt.vertical) {
+              Object.assign(insertMarker.style, {
+                left: `${r.left + 4}px`,
+                top: `${(atEnd ? r.bottom : r.top) - 1}px`,
+                width: `${r.width - 8}px`,
+                height: '2px'
+              });
+            } else {
+              Object.assign(insertMarker.style, {
+                left: `${(atEnd ? r.right : r.left) - 1}px`,
+                top: `${r.top + 4}px`,
+                width: '2px',
+                height: `${r.height - 8}px`
+              });
+            }
+            insertMarker.hidden = false;
+          }
+        } else if (tgt?.split) {
+          splitPreview.hidden = false;
+          splitPreview.classList.add(tgt.isRight ? 'side-right' : 'side-left');
+          splitPreview.textContent = tgt.isRight ? t('dropZoneSplitRight') : t('dropZoneSplitLeft');
+          requestAnimationFrame(() => splitPreview.classList.add('show'));
+        }
+      }
+    };
+
+    const commit = () => {
+      const { kind, id, target } = drag;
+      if (!target) return;
+      if (kind === 'sidebar') {
+        state.layout.placeSidebar(id, target.side, target.before);
+        applyWorkbenchLayout();
+        const el = sidebarEls[id];
+        el.animate([{ opacity: 0.35, transform: 'scale(0.985)' }, { opacity: 1, transform: 'none' }], {
+          duration: 200,
+          easing: 'cubic-bezier(0.2, 0, 0, 1)'
+        });
+      } else if (kind === 'panel') {
+        state.layout.setPanelDock(target.side);
+        applyWorkbenchLayout();
+        dockPanel.animate([{ opacity: 0.35 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+      } else if (kind === 'tab') {
+        if (target.reorder) {
+          const tabs = [...tabStrip.querySelectorAll('.panel-tab[data-dock]')];
+          const btn = tabStrip.querySelector(`.panel-tab[data-dock="${id}"]`);
+          if (btn) animateReflow(tabs, () => tabStrip.insertBefore(btn, target.beforeEl));
+          savePanelTabOrder();
+          // Dropping the right pane's title back into the tab row closes the split
+          // and shows that tab on the left (like moving an editor back into one group).
+          if (id === splitPanelTab) {
+            setSplitPanelTab(null);
+            openPanelTab(id);
+          }
+        } else if (target.split) {
+          dropDockTab(id, target.isRight);
+        }
+      }
+    };
+
+    const onPointerDown = (kind, getId) => (e) => {
+      if (e.button !== 0 || drag || isLayoutLocked()) return;
+      if (e.target.closest('input, select, textarea')) return;
+      if (kind === 'panel' && e.target.closest('.panel-tab, .panel-secondary-title')) return;
+      drag = {
+        kind,
+        id: getId(e),
+        startX: e.clientX,
+        startY: e.clientY,
+        active: false,
+        pointerId: e.pointerId,
+        handle: e.currentTarget,
+        target: null
+      };
+    };
+
+    const onPointerMove = (e) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      if (!(e.buttons & 1)) {
+        endDrag();
+        return;
+      }
+      if (!drag.active) {
+        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < THRESHOLD) return;
+        try {
+          drag.handle.setPointerCapture(drag.pointerId);
+        } catch {
+          /* pointer gone */
+        }
+        activate();
+      }
+      e.preventDefault();
+      ghost.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 10}px)`;
+      showTarget(e.clientX, e.clientY);
+    };
+
+    const onPointerUp = (e) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      if (drag.active) {
+        suppressClickUntil = Date.now() + 250;
+        showTarget(e.clientX, e.clientY);
+        try {
+          commit();
+        } finally {
+          endDrag();
+        }
+      } else {
+        drag = null;
+      }
+    };
+
+    window.addEventListener('pointermove', onPointerMove, true);
+    window.addEventListener('pointerup', onPointerUp, true);
+    window.addEventListener('pointercancel', endDrag, true);
+    window.addEventListener('blur', endDrag);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && drag?.active) {
+        suppressClickUntil = Date.now() + 250;
+        endDrag();
+      }
+    });
+
+    for (const handle of document.querySelectorAll('[data-drag-panel]')) {
+      handle.removeAttribute('draggable');
+      const what = handle.getAttribute('data-drag-panel');
+      handle.addEventListener('pointerdown', onPointerDown(what === 'panel' ? 'panel' : 'sidebar', () => what));
+    }
+    for (const tabBtn of document.querySelectorAll('.panel-tab[data-dock]')) {
+      tabBtn.draggable = false;
+      tabBtn.addEventListener('pointerdown', onPointerDown('tab', (e) => e.currentTarget.dataset.dock));
+    }
+
+    $('panelSecondaryTab')?.addEventListener(
+      'pointerdown',
+      onPointerDown('tab', (e) => e.currentTarget.dataset.dock)
+    );
+
+    restorePanelTabOrder();
+    applyLayoutLockUI();
   }
 
   // --- Settings Application ---
@@ -2298,7 +2644,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const renderBucket = (title, items, groupObj = null) => {
       const head = document.createElement('div');
       head.className = 'fg-head';
-      const collapsed = groupObj ? groupObj.collapsed : false;
+      const collapsed = groupObj
+        ? groupObj.collapsed
+        : localStorage.getItem('rcs-ungrouped-collapsed') === '1';
       head.innerHTML =
         `<span class="ico">${svg(collapsed ? 'chevron-right' : 'chevron-down', { size: 12 })}</span>` +
         `<span class="fg-head-title"></span>` +
@@ -2339,6 +2687,12 @@ boxplot(Sepal.Length ~ Species, data = iris,
         head.addEventListener('click', () => {
           state.fileGroups.toggleCollapsed(groupObj.id);
           saveFileGroups();
+          renderFileGroupsPanel();
+        });
+      } else {
+        // "Ungrouped" bucket is not a stored group: keep its collapsed state separately.
+        head.addEventListener('click', () => {
+          localStorage.setItem('rcs-ungrouped-collapsed', collapsed ? '0' : '1');
           renderFileGroupsPanel();
         });
       }
@@ -3267,6 +3621,8 @@ boxplot(Sepal.Length ~ Species, data = iris,
     help: 'dockHelp'
   };
   let splitPanelTab = localStorage.getItem('rcs-split-panel-tab') || null;
+  let lastRenderedSecondary = null;
+  let splitAnimTimer = null;
 
   function renderDockPanes() {
     const primary = state.activePanelTab || 'console';
@@ -3274,7 +3630,6 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const primaryCol = $('panelPrimaryCol');
     const secondaryCol = $('panelSecondaryCol');
     const secondaryHost = $('panelSecondaryHost');
-    const splitSel = $('panelSplitSelect');
 
     for (const [key, id] of Object.entries(DOCK_PANE_MAP)) {
       const el = $(id);
@@ -3288,44 +3643,66 @@ boxplot(Sepal.Length ~ Species, data = iris,
       }
     }
 
-    if (secondaryCol) secondaryCol.hidden = !secondary;
+    const splitChanged = (lastRenderedSecondary || null) !== (secondary || null);
+    const panelBodyEl = $('panelBody');
+    if (splitChanged && panelBodyEl && primaryCol) {
+      // Animate the split opening/closing (and swapping which pane is on the right).
+      panelBodyEl.classList.add('split-animating');
+      clearTimeout(splitAnimTimer);
+      splitAnimTimer = setTimeout(() => {
+        panelBodyEl.classList.remove('split-animating');
+        syncSplitHeaderWidth();
+        fitArfXterm();
+      }, 260);
+    }
+    if (secondaryCol) {
+      const wasHidden = secondaryCol.hidden;
+      secondaryCol.hidden = !secondary;
+      if (secondary && (wasHidden || splitChanged)) {
+        secondaryCol.animate(
+          [
+            { opacity: 0, transform: 'translateX(24px)' },
+            { opacity: 1, transform: 'none' }
+          ],
+          { duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
+        );
+      }
+    }
+    lastRenderedSecondary = secondary;
+    const dockPanelEl = $('dockPanel');
+    dockPanelEl?.classList.toggle('is-split', Boolean(secondary));
+    const secTitle = $('panelSecondaryTitle');
+    if (secTitle) {
+      secTitle.hidden = !secondary;
+      if (secondary) {
+        const srcTab = document.querySelector(`.panel-tab[data-dock="${secondary}"]`);
+        $('panelSecondaryIco').innerHTML = srcTab?.querySelector('.ico')?.innerHTML || '';
+        $('panelSecondaryLabel').textContent = srcTab?.querySelector('.panel-tab-label')?.textContent || secondary;
+        $('panelSecondaryTab').dataset.dock = secondary;
+        $('panelSecondaryTab').title = srcTab?.title || '';
+      }
+    }
+    syncSplitHeaderWidth();
     if ($('panelSplitGrip')) $('panelSplitGrip').hidden = !secondary;
     if (primaryCol && secondaryCol) {
       if (secondary) {
-        const ratio = Math.max(0.2, Math.min(0.8, Number(localStorage.getItem('rcs-panel-split-ratio')) || 0.5));
+        const ratio = Math.max(0.18, Math.min(0.82, Number(localStorage.getItem('rcs-panel-split-ratio')) || 0.5));
         primaryCol.style.flex = `0 0 ${(ratio * 100).toFixed(2)}%`;
         secondaryCol.style.flex = '1 1 auto';
       } else {
-        primaryCol.style.flex = '1 1 100%';
+        primaryCol.style.flex = '0 0 100%';
         secondaryCol.style.flex = '';
       }
     }
     $('btnPanelSplit')?.classList.toggle('active', Boolean(secondary));
     requestAnimationFrame(() => fitArfXterm());
 
-    if (splitSel && secondary) {
-      const isEs = getLang() === 'es';
-      const labels = {
-        console: isEs ? 'Consola R (integrada)' : 'R Console (integrated)',
-        arf: isEs ? 'arf (terminal interactiva)' : 'arf (interactive PTY)',
-        plots: isEs ? 'Gráficas' : 'Plots',
-        problems: isEs ? 'Problemas' : 'Problems',
-        help: isEs ? 'Ayuda R' : 'R Help'
-      };
-      splitSel.textContent = '';
-      for (const key of Object.keys(DOCK_PANE_MAP)) {
-        if (key === primary) continue;
-        const opt = document.createElement('option');
-        opt.value = key;
-        opt.textContent = labels[key] || key;
-        if (key === secondary) opt.selected = true;
-        splitSel.append(opt);
-      }
-    }
-
     for (const btn of document.querySelectorAll('.panel-tab')) {
       const dk = btn.dataset.dock;
       btn.classList.toggle('active', dk === primary || dk === secondary);
+      btn.classList.toggle('split-secondary', dk === secondary);
+      // The right pane's tab is shown in the header above that pane instead.
+      btn.classList.toggle('split-hidden', dk === secondary);
     }
 
     // Clarify Console vs arf tooltips
@@ -3342,6 +3719,16 @@ boxplot(Sepal.Length ~ Species, data = iris,
         ? 'Terminal interactiva arf (PTY): REPL avanzado de R con autocompletado y edición multilínea (puedes abrirla junto a Gráficas usando Dividir).'
         : 'Interactive arf terminal (PTY): enhanced R REPL with tab completion and multiline editing (split with Plots to view both side by side).';
     }
+  }
+
+  // Keep the tab strip exactly as wide as the left pane so the right pane's
+  // title sits right above it.
+  // (Uses the split ratio, not measured pixels, so CSS keeps it aligned on resize.)
+  function syncSplitHeaderWidth() {
+    const dp = $('dockPanel');
+    if (!dp) return;
+    const ratio = Math.max(0.18, Math.min(0.82, Number(localStorage.getItem('rcs-panel-split-ratio')) || 0.5));
+    dp.style.setProperty('--split-ratio', ratio.toFixed(4));
   }
 
   function setSplitPanelTab(tabKey) {
@@ -3646,6 +4033,14 @@ boxplot(Sepal.Length ~ Species, data = iris,
         state.layout.togglePanelOrientation();
         applyWorkbenchLayout();
         break;
+      case 'toggle-layout-lock': {
+        const locked = !isLayoutLocked();
+        localStorage.setItem(LAYOUT_LOCK_KEY, locked ? '1' : '0');
+        applyLayoutLockUI();
+        menuBar.render();
+        showToast(t(locked ? 'toastLayoutLocked' : 'toastLayoutUnlocked'));
+        break;
+      }
       case 'toggle-dock-position': {
         const order = ['bottom', 'right', 'left'];
         const next = order[(order.indexOf(state.layout.panel.dock) + 1) % order.length];
@@ -3790,6 +4185,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
       cmdEntry('toggle-rcmdr-sidebar', 'toggleRcmdrSidebar'),
       cmdEntry('toggle-panel', 'togglePanel'),
       cmdEntry('toggle-panel-orientation', 'togglePanelOrientation'),
+      cmdEntry('toggle-layout-lock', 'lockLayout'),
       cmdEntry('layout-both-left', 'layoutBothLeft'),
       cmdEntry('layout-explorer-left-rcmdr-right', 'layoutExplorerLeftRcmdrRight'),
       cmdEntry('layout-rcmdr-left-explorer-right', 'layoutRcmdrLeftExplorerRight'),
@@ -4856,6 +5252,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
         pCol.style.flex = `0 0 ${(ratio * 100).toFixed(2)}%`;
         sCol.style.flex = '1 1 auto';
         localStorage.setItem('rcs-panel-split-ratio', ratio.toFixed(4));
+        syncSplitHeaderWidth();
         fitArfXterm();
       };
       const onUp = () => {
@@ -4870,7 +5267,6 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
   // Split Bottom Dock controls & Drag-and-Drop tabs between sides (Editor Tabs & Dock Tabs)
   let draggingEditorTabId = null;
-  let draggingDockTabKey = null;
 
   for (const grpIdx of [0, 1]) {
     const grpEl = $(`editorGroup${grpIdx}`);
@@ -4903,68 +5299,6 @@ boxplot(Sepal.Length ~ Species, data = iris,
       const dropRightSplit = grpIdx === 0 && !state.splitOpen && e.clientX > rect.left + rect.width * 0.62;
       grpEl.classList.remove('tab-drop-left', 'tab-drop-right', 'tab-drop-highlight');
       moveTabToGroup(tabId, dropRightSplit ? 1 : grpIdx);
-    });
-  }
-
-  for (const tabBtn of document.querySelectorAll('.panel-tab[data-dock]')) {
-    tabBtn.draggable = true;
-    tabBtn.addEventListener('dragstart', (e) => {
-      e.stopPropagation();
-      draggingDockTabKey = tabBtn.dataset.dock || null;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('application/x-rcs-dock-tab', draggingDockTabKey || '');
-      tabBtn.classList.add('dragging');
-    });
-    tabBtn.addEventListener('dragend', () => {
-      draggingDockTabKey = null;
-      tabBtn.classList.remove('dragging');
-      $('panelBody')?.classList.remove('tab-drop-left', 'tab-drop-right');
-    });
-  }
-
-  const dockPanelEl = $('dockPanel');
-  const panelBodyEl = $('panelBody');
-  if (dockPanelEl && panelBodyEl) {
-    dockPanelEl.addEventListener('dragover', (e) => {
-      if (!draggingDockTabKey) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      const rect = dockPanelEl.getBoundingClientRect();
-      const isRight = e.clientX > rect.left + rect.width * 0.5;
-      panelBodyEl.classList.toggle('tab-drop-right', isRight);
-      panelBodyEl.classList.toggle('tab-drop-left', !isRight);
-    });
-    dockPanelEl.addEventListener('dragleave', (e) => {
-      if (!dockPanelEl.contains(e.relatedTarget)) {
-        panelBodyEl.classList.remove('tab-drop-left', 'tab-drop-right');
-      }
-    });
-    dockPanelEl.addEventListener('drop', (e) => {
-      if (!draggingDockTabKey) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const key = draggingDockTabKey;
-      draggingDockTabKey = null;
-      const rect = dockPanelEl.getBoundingClientRect();
-      const isRight = e.clientX > rect.left + rect.width * 0.5;
-      panelBodyEl.classList.remove('tab-drop-left', 'tab-drop-right');
-      if (isRight) {
-        if (key === state.activePanelTab && splitPanelTab) {
-          const oldRight = splitPanelTab;
-          state.activePanelTab = oldRight;
-          setSplitPanelTab(key);
-        } else {
-          setSplitPanelTab(key);
-        }
-      } else {
-        if (splitPanelTab === key) {
-          const oldLeft = state.activePanelTab;
-          state.activePanelTab = key;
-          setSplitPanelTab(oldLeft);
-        } else {
-          openPanelTab(key);
-        }
-      }
     });
   }
 

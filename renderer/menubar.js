@@ -138,6 +138,11 @@
             { label: t('toggleRcmdrSidebar'), cmd: 'toggle-rcmdr-sidebar' },
             { label: t('togglePanel'), cmd: 'toggle-panel' },
             { label: t('togglePanelOrientation'), cmd: 'toggle-panel-orientation' },
+            {
+              label: t('lockLayout'),
+              cmd: 'toggle-layout-lock',
+              checked: localStorage.getItem('rcs-layout-locked') === '1'
+            },
             { sep: true },
             { label: t('layoutBothLeft'), cmd: 'layout-both-left' },
             { label: t('layoutExplorerLeftRcmdrRight'), cmd: 'layout-explorer-left-rcmdr-right' },
@@ -223,6 +228,9 @@
           btn.type = 'button';
           btn.className = 'menubar-entry';
           btn.innerHTML =
+            (typeof item.checked === 'boolean'
+              ? `<span class="menubar-check">${item.checked ? svg('check', { size: 12 }) : ''}</span>`
+              : '') +
             `<span class="menubar-entry-label"></span>` +
             (item.sub ? `<small class="menubar-sub-tiny"></small>` : '') +
             (item.accel ? `<span class="menubar-accel">${item.accel}</span>` : '');

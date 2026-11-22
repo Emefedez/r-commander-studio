@@ -23,6 +23,7 @@
         orientation: 'horizontal',
         size: 240
       };
+      this.sidebarOrder = ['explorer', 'rcmdr']; // left-to-right order within a shared dock
       this.peekingSidebar = null; // transient hover-peek sidebar id ('explorer' | 'rcmdr' | null)
       if (initial) this.load(initial);
     }
@@ -39,6 +40,10 @@
             this.sidebars[id].width = Math.max(190, Math.min(480, Number(src.width)));
           }
         }
+      }
+      if (Array.isArray(data.sidebarOrder)) {
+        const ord = data.sidebarOrder.filter((id) => id === 'explorer' || id === 'rcmdr');
+        if (ord.length === 2 && ord[0] !== ord[1]) this.sidebarOrder = ord;
       }
       if (data.panel && typeof data.panel === 'object') {
         const p = data.panel;
@@ -57,6 +62,7 @@
           explorer: { ...this.sidebars.explorer },
           rcmdr: { ...this.sidebars.rcmdr }
         },
+        sidebarOrder: [...this.sidebarOrder],
         panel: { ...this.panel }
       };
     }
@@ -78,6 +84,23 @@
       if (!this.sidebars[id] || !VALID_SIDES.has(side)) return false;
       this.sidebars[id].dock = side;
       this.sidebars[id].open = true;
+      return true;
+    }
+
+    /**
+     * Dock a sidebar on `side`, placed just before `beforeId` (another sidebar
+     * id) or at the end of that dock when `beforeId` is null. 'start' puts it
+     * first on that side.
+     */
+    placeSidebar(id, side, beforeId = null) {
+      if (!this.setSidebarDock(id, side)) return false;
+      const rest = this.sidebarOrder.filter((x) => x !== id);
+      let idx;
+      if (beforeId === 'start') idx = 0;
+      else if (beforeId && rest.includes(beforeId)) idx = rest.indexOf(beforeId);
+      else idx = rest.length;
+      rest.splice(idx, 0, id);
+      this.sidebarOrder = rest;
       return true;
     }
 
@@ -120,7 +143,7 @@
     }
 
     getSidebarsOn(side) {
-      return ['explorer', 'rcmdr'].filter(
+      return this.sidebarOrder.filter(
         (id) => this.sidebars[id].dock === side && this.sidebars[id].open
       );
     }
