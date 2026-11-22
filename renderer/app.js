@@ -499,6 +499,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
     for (const handle of document.querySelectorAll('[data-drag-panel]')) {
       handle.addEventListener('dragstart', (e) => {
+        if (e.target.closest('.panel-tab, button, input, select')) {
+          return;
+        }
         draggingWhat = handle.getAttribute('data-drag-panel');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', draggingWhat);
@@ -4919,34 +4922,34 @@ boxplot(Sepal.Length ~ Species, data = iris,
     });
   }
 
+  const dockPanelEl = $('dockPanel');
   const panelBodyEl = $('panelBody');
-  if (panelBodyEl) {
-    panelBodyEl.addEventListener('dragover', (e) => {
+  if (dockPanelEl && panelBodyEl) {
+    dockPanelEl.addEventListener('dragover', (e) => {
       if (!draggingDockTabKey) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      const rect = panelBodyEl.getBoundingClientRect();
+      const rect = dockPanelEl.getBoundingClientRect();
       const isRight = e.clientX > rect.left + rect.width * 0.5;
       panelBodyEl.classList.toggle('tab-drop-right', isRight);
       panelBodyEl.classList.toggle('tab-drop-left', !isRight);
     });
-    panelBodyEl.addEventListener('dragleave', (e) => {
-      if (!panelBodyEl.contains(e.relatedTarget)) {
+    dockPanelEl.addEventListener('dragleave', (e) => {
+      if (!dockPanelEl.contains(e.relatedTarget)) {
         panelBodyEl.classList.remove('tab-drop-left', 'tab-drop-right');
       }
     });
-    panelBodyEl.addEventListener('drop', (e) => {
+    dockPanelEl.addEventListener('drop', (e) => {
       if (!draggingDockTabKey) return;
       e.preventDefault();
       e.stopPropagation();
       const key = draggingDockTabKey;
       draggingDockTabKey = null;
-      const rect = panelBodyEl.getBoundingClientRect();
+      const rect = dockPanelEl.getBoundingClientRect();
       const isRight = e.clientX > rect.left + rect.width * 0.5;
       panelBodyEl.classList.remove('tab-drop-left', 'tab-drop-right');
       if (isRight) {
         if (key === state.activePanelTab && splitPanelTab) {
-          // Swap left and right panes
           const oldRight = splitPanelTab;
           state.activePanelTab = oldRight;
           setSplitPanelTab(key);
