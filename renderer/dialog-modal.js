@@ -478,14 +478,33 @@
           };
           this.widgets[f.k] = { box, err, read, write };
         } else {
+          const isColor =
+            this.commandId === 'setPalette' ||
+            /^hex\d+$/i.test(f.k || '') ||
+            (typeof f.def === 'string' && /^#[0-9a-fA-F]{6}$/.test(f.def.trim()));
           const input = h('input', {
             type: 'text',
             placeholder: f.placeholder || (f.free ? S.freeHint || 'Type variable names...' : '')
           });
+          const colorPicker = isColor
+            ? h('input', {
+                type: 'color',
+                class: 'rcmdr-color-picker',
+                value: /^#[0-9a-fA-F]{6}$/.test(String(f.def || '').trim()) ? String(f.def).trim() : '#000000'
+              })
+            : null;
+          if (colorPicker) {
+            colorPicker.addEventListener('input', () => {
+              input.value = colorPicker.value.toUpperCase();
+              this.dirty[f.k] = true;
+              this.touch(f.k);
+            });
+          }
           const isBrowse = f.type === 'file' || f.type === 'dir';
           const isPkgDialog = this.commandId === 'installPackages' || this.commandId === 'updatePackages';
           const isWide =
             !f.compact &&
+            !isColor &&
             !isPkgDialog &&
             (f.type === 'text' || f.type === 'name' || isBrowse || f.free || f.type === 'numlist');
           const browseBtn = isBrowse
@@ -509,18 +528,31 @@
                 }
               })
             : null;
+          const fieldTitle = f.label || (isColor && f.prompt ? `Color ${f.prompt}` : '');
+          const fieldControl = isBrowse
+            ? h('div', { class: 'rcmdr-row' }, input, browseBtn)
+            : isColor
+              ? h('div', { class: 'rcmdr-color-row' }, colorPicker, input)
+              : input;
           box = h(
             'div',
-            { class: `rcmdr-field${isWide ? ' wide' : ''}${f.compact ? ' compact' : ''}` },
-            h('label', { class: 'field-title' }, f.label),
-            isBrowse ? h('div', { class: 'rcmdr-row' }, input, browseBtn) : input,
+            { class: `rcmdr-field${isWide ? ' wide' : ''}${f.compact && !isColor ? ' compact' : ''}${isColor ? ' color-field' : ''}` },
+            h('label', { class: 'field-title' }, fieldTitle),
+            fieldControl,
             err
           );
           read = () => input.value;
           write = (v) => {
-            input.value = v ?? '';
+            const str = String(v ?? '');
+            input.value = str;
+            if (colorPicker && /^#[0-9a-fA-F]{6}$/.test(str.trim())) {
+              colorPicker.value = str.trim();
+            }
           };
           input.addEventListener('input', () => {
+            if (colorPicker && /^#[0-9a-fA-F]{6}$/.test(input.value.trim())) {
+              colorPicker.value = input.value.trim();
+            }
             this.dirty[f.k] = true;
             this.touch(f.k);
           });
