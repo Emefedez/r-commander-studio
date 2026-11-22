@@ -2739,6 +2739,24 @@ footer.statusbar {
 .studio-context-menu {
   min-width: 200px;
 }
+.tab-item.dragging,
+.panel-tab.dragging {
+  opacity: 0.45;
+}
+.editor-group.tab-drop-highlight {
+  outline: 2px dashed var(--accent-purple);
+  outline-offset: -3px;
+}
+.editor-group.tab-drop-right {
+  box-shadow: inset -60px 0 0 rgba(189, 147, 249, 0.22);
+}
+.panel-body.tab-drop-left {
+  box-shadow: inset 120px 0 0 rgba(139, 233, 253, 0.14);
+}
+.panel-body.tab-drop-right {
+  box-shadow: inset -120px 0 0 rgba(189, 147, 249, 0.18);
+}
+
 .fs-rename-input {
   flex: 1;
   min-width: 60px;

@@ -1848,6 +1848,21 @@ boxplot(Sepal.Length ~ Species, data = iris,
       const el = document.createElement('div');
       el.className = `tab-item${tab.id === state.activeTabByGroup[g] ? ' active' : ''}`;
       el.title = tab.filePath || tab.name;
+      el.draggable = true;
+      el.dataset.tabId = String(tab.id);
+      el.addEventListener('dragstart', (e) => {
+        e.stopPropagation();
+        draggingEditorTabId = tab.id;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('application/x-rcs-tab', String(tab.id));
+        el.classList.add('dragging');
+      });
+      el.addEventListener('dragend', () => {
+        draggingEditorTabId = null;
+        el.classList.remove('dragging');
+        $('editorGroup0')?.classList.remove('tab-drop-left', 'tab-drop-right', 'tab-drop-highlight');
+        $('editorGroup1')?.classList.remove('tab-drop-highlight');
+      });
 
       const icoName = tab.kind === 'table' ? 'table' : tab.language === 'r' ? 'r-logo' : 'file';
       const icoColor = tab.kind === 'table' ? 'var(--accent-green)' : tab.language === 'rmd' ? 'var(--accent-purple)' : 'var(--accent-cyan)';
@@ -4248,7 +4263,106 @@ boxplot(Sepal.Length ~ Species, data = iris,
     { passive: false, capture: true }
   );
 
-  // Split Bottom Dock controls
+  // Split Bottom Dock controls & Drag-and-Drop tabs between sides (Editor Tabs & Dock Tabs)
+  let draggingEditorTabId = null;
+  let draggingDockTabKey = null;
+
+  for (const grpIdx of [0, 1]) {
+    const grpEl = $(`editorGroup${grpIdx}`);
+    if (!grpEl) continue;
+    grpEl.addEventListener('dragover', (e) => {
+      if (draggingEditorTabId == null) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (grpIdx === 0 && !state.splitOpen) {
+        const rect = grpEl.getBoundingClientRect();
+        const isRightEdge = e.clientX > rect.left + rect.width * 0.62;
+        grpEl.classList.toggle('tab-drop-right', isRightEdge);
+        grpEl.classList.toggle('tab-drop-highlight', !isRightEdge);
+      } else {
+        grpEl.classList.add('tab-drop-highlight');
+      }
+    });
+    grpEl.addEventListener('dragleave', (e) => {
+      if (!grpEl.contains(e.relatedTarget)) {
+        grpEl.classList.remove('tab-drop-left', 'tab-drop-right', 'tab-drop-highlight');
+      }
+    });
+    grpEl.addEventListener('drop', (e) => {
+      if (draggingEditorTabId == null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const tabId = draggingEditorTabId;
+      draggingEditorTabId = null;
+      const rect = grpEl.getBoundingClientRect();
+      const dropRightSplit = grpIdx === 0 && !state.splitOpen && e.clientX > rect.left + rect.width * 0.62;
+      grpEl.classList.remove('tab-drop-left', 'tab-drop-right', 'tab-drop-highlight');
+      moveTabToGroup(tabId, dropRightSplit ? 1 : grpIdx);
+    });
+  }
+
+  for (const tabBtn of document.querySelectorAll('.panel-tab[data-dock]')) {
+    tabBtn.draggable = true;
+    tabBtn.addEventListener('dragstart', (e) => {
+      e.stopPropagation();
+      draggingDockTabKey = tabBtn.dataset.dock || null;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('application/x-rcs-dock-tab', draggingDockTabKey || '');
+      tabBtn.classList.add('dragging');
+    });
+    tabBtn.addEventListener('dragend', () => {
+      draggingDockTabKey = null;
+      tabBtn.classList.remove('dragging');
+      $('panelBody')?.classList.remove('tab-drop-left', 'tab-drop-right');
+    });
+  }
+
+  const panelBodyEl = $('panelBody');
+  if (panelBodyEl) {
+    panelBodyEl.addEventListener('dragover', (e) => {
+      if (!draggingDockTabKey) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = panelBodyEl.getBoundingClientRect();
+      const isRight = e.clientX > rect.left + rect.width * 0.5;
+      panelBodyEl.classList.toggle('tab-drop-right', isRight);
+      panelBodyEl.classList.toggle('tab-drop-left', !isRight);
+    });
+    panelBodyEl.addEventListener('dragleave', (e) => {
+      if (!panelBodyEl.contains(e.relatedTarget)) {
+        panelBodyEl.classList.remove('tab-drop-left', 'tab-drop-right');
+      }
+    });
+    panelBodyEl.addEventListener('drop', (e) => {
+      if (!draggingDockTabKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const key = draggingDockTabKey;
+      draggingDockTabKey = null;
+      const rect = panelBodyEl.getBoundingClientRect();
+      const isRight = e.clientX > rect.left + rect.width * 0.5;
+      panelBodyEl.classList.remove('tab-drop-left', 'tab-drop-right');
+      if (isRight) {
+        if (key === state.activePanelTab && splitPanelTab) {
+          // Swap left and right panes
+          const oldRight = splitPanelTab;
+          state.activePanelTab = oldRight;
+          setSplitPanelTab(key);
+        } else {
+          setSplitPanelTab(key);
+        }
+      } else {
+        if (splitPanelTab === key) {
+          const oldLeft = state.activePanelTab;
+          state.activePanelTab = key;
+          setSplitPanelTab(oldLeft);
+        } else {
+          openPanelTab(key);
+        }
+      }
+    });
+  }
+
   $('btnPanelSplit')?.addEventListener('click', () => {
     if (splitPanelTab) {
       setSplitPanelTab(null);
