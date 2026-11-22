@@ -11,6 +11,8 @@
     autoSaveDelayMs: 1500,
     showProblemErrors: true,
     showProblemWarnings: true,
+    showStyleLints: false,
+    mutedWarnings: [],
     limitOutput: true,
     maxOutputItems: 24,
     fixedNotation: false,
@@ -206,6 +208,7 @@
           <label class="settings-check"><input type="checkbox" id="set_editorWordWrap"${s.editorWordWrap !== false ? ' checked' : ''}> ${t('settingsEditorWordWrap')}</label>
           <label class="settings-check"><input type="checkbox" id="set_showProblemErrors"${s.showProblemErrors !== false ? ' checked' : ''}> ${t('settingsShowProblemErrors')}</label>
           <label class="settings-check"><input type="checkbox" id="set_showProblemWarnings"${s.showProblemWarnings !== false ? ' checked' : ''}> ${t('settingsShowProblemWarnings')}</label>
+          <label class="settings-check"><input type="checkbox" id="set_showStyleLints"${s.showStyleLints === true ? ' checked' : ''}> ${t('settingsShowStyleLints')}</label>
           <label class="settings-check"><input type="checkbox" id="set_hoverPeekSidebars"${s.hoverPeekSidebars !== false ? ' checked' : ''}> ${t('settingsHoverPeek')}</label>
           <label class="settings-check"><input type="checkbox" id="set_closeMenusAfterChoice"${s.closeMenusAfterChoice ? ' checked' : ''}> ${t('settingsCloseMenus')}</label>
         </div>
@@ -351,6 +354,7 @@
         editorWordWrap: document.getElementById('set_editorWordWrap').checked,
         showProblemErrors: document.getElementById('set_showProblemErrors').checked,
         showProblemWarnings: document.getElementById('set_showProblemWarnings').checked,
+        showStyleLints: document.getElementById('set_showStyleLints').checked,
         hoverPeekSidebars: document.getElementById('set_hoverPeekSidebars').checked,
         closeMenusAfterChoice: document.getElementById('set_closeMenusAfterChoice').checked,
         limitOutput: document.getElementById('set_limitOutput').checked,

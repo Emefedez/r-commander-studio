@@ -1684,10 +1684,34 @@ boxplot(Sepal.Length ~ Species, data = iris,
     return combined;
   }
 
+  const STYLE_LINT_RE = /trailing\s+(blank|whitespace)|remove\s+trailing|superfluous|more\s+than\s+\d+\s+characters|infix\s+operators|only\s+use\s+double-quotes|indentation|commented\s+code|commas\s+should|spaces\s+around|whitespace/i;
+
+  function isStyleDiagnostic(d) {
+    if (!d) return false;
+    if (d.severity === 'info' || d.severity === 'hint') return true;
+    return d.severity === 'warning' && STYLE_LINT_RE.test(String(d.message || ''));
+  }
+
+  function diagnosticRuleKey(d) {
+    return String(d?.message || '').trim().toLowerCase();
+  }
+
   function isDiagnosticVisible(d) {
-    if (d.severity === 'error' && state.settings.showProblemErrors === false) return false;
-    if (d.severity === 'warning' && state.settings.showProblemWarnings === false) return false;
-    return true;
+    if (d.severity === 'error') return state.settings.showProblemErrors !== false;
+    const muted = Array.isArray(state.settings.mutedWarnings) ? state.settings.mutedWarnings : [];
+    if (muted.includes(diagnosticRuleKey(d))) return false;
+    if (isStyleDiagnostic(d)) return state.settings.showStyleLints === true;
+    return state.settings.showProblemWarnings !== false;
+  }
+
+  function muteDiagnosticType(d) {
+    const key = diagnosticRuleKey(d);
+    if (!key) return;
+    const list = Array.isArray(state.settings.mutedWarnings) ? state.settings.mutedWarnings.slice() : [];
+    if (!list.includes(key)) list.push(key);
+    state.settings.mutedWarnings = list;
+    saveSettings(state.settings);
+    applySettingsUI();
   }
 
   function applyMarkersForUri(uri) {
@@ -1721,11 +1745,20 @@ boxplot(Sepal.Length ~ Species, data = iris,
       for (const d of mergeDiagnostics(tab.uri)) all.push({ tab, ...d });
     }
     const totalErrCount = all.filter((x) => x.severity === 'error').length;
-    const totalWarnCount = all.filter((x) => x.severity === 'warning').length;
+    const totalStyleCount = all.filter((x) => x.severity !== 'error' && isStyleDiagnostic(x)).length;
+    const totalWarnCount = all.filter((x) => x.severity !== 'error' && !isStyleDiagnostic(x)).length;
     if ($('problemsFilterErrCount')) $('problemsFilterErrCount').textContent = String(totalErrCount);
     if ($('problemsFilterWarnCount')) $('problemsFilterWarnCount').textContent = String(totalWarnCount);
+    if ($('problemsFilterStyleCount')) $('problemsFilterStyleCount').textContent = String(totalStyleCount);
     $('btnProblemsToggleErrors')?.classList.toggle('active', state.settings.showProblemErrors !== false);
     $('btnProblemsToggleWarnings')?.classList.toggle('active', state.settings.showProblemWarnings !== false);
+    $('btnProblemsToggleStyle')?.classList.toggle('active', state.settings.showStyleLints === true);
+    const mutedCount = Array.isArray(state.settings.mutedWarnings) ? state.settings.mutedWarnings.length : 0;
+    const unmuteBtn = $('btnProblemsUnmuteAll');
+    if (unmuteBtn) {
+      unmuteBtn.hidden = mutedCount === 0;
+      unmuteBtn.textContent = getLang() === 'es' ? `Restaurar silenciados (${mutedCount})` : `Restore muted (${mutedCount})`;
+    }
 
     const visible = all.filter(isDiagnosticVisible);
     const errCount = visible.filter((x) => x.severity === 'error').length;
@@ -1763,6 +1796,26 @@ boxplot(Sepal.Length ~ Species, data = iris,
         ed?.setPosition({ lineNumber: item.startLineNumber, column: item.startColumn });
         ed?.focus();
       });
+      if (item.severity !== 'error') {
+        const muteBtn = document.createElement('button');
+        muteBtn.type = 'button';
+        muteBtn.className = 'icon-btn';
+        muteBtn.title = getLang() === 'es' ? 'Silenciar este tipo de aviso' : 'Mute this warning type';
+        muteBtn.innerHTML = svg('close', { size: 11 });
+        muteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          muteDiagnosticType(item);
+        });
+        row.append(muteBtn);
+        row.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          const isEs = getLang() === 'es';
+          showContextMenu(e.clientX, e.clientY, [
+            { icon: 'close', label: isEs ? 'Silenciar este tipo de aviso' : 'Mute This Warning Type', action: () => muteDiagnosticType(item) },
+            { icon: 'copy', label: isEs ? 'Copiar mensaje' : 'Copy Message', action: () => navigator.clipboard.writeText(item.message || '') }
+          ]);
+        });
+      }
       listEl.append(row);
     }
   }
@@ -5314,6 +5367,16 @@ boxplot(Sepal.Length ~ Species, data = iris,
   });
   $('btnProblemsToggleWarnings')?.addEventListener('click', () => {
     state.settings.showProblemWarnings = state.settings.showProblemWarnings === false;
+    saveSettings(state.settings);
+    applySettingsUI();
+  });
+  $('btnProblemsToggleStyle')?.addEventListener('click', () => {
+    state.settings.showStyleLints = state.settings.showStyleLints !== true;
+    saveSettings(state.settings);
+    applySettingsUI();
+  });
+  $('btnProblemsUnmuteAll')?.addEventListener('click', () => {
+    state.settings.mutedWarnings = [];
     saveSettings(state.settings);
     applySettingsUI();
   });
