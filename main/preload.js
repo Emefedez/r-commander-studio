@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld('studio', {
 
   arfStart: () => ipcRenderer.invoke('arf:start'),
   arfSend: (code) => ipcRenderer.invoke('arf:send', code),
+  arfWrite: (data) => ipcRenderer.invoke('arf:write', data),
+  arfResize: (payload) => ipcRenderer.invoke('arf:resize', payload),
   arfInterrupt: () => ipcRenderer.invoke('arf:interrupt'),
   arfRestart: () => ipcRenderer.invoke('arf:restart'),
 

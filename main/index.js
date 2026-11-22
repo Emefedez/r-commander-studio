@@ -549,6 +549,8 @@ function registerIpc() {
   // Interactive arf terminal IPC
   ipcMain.handle('arf:start', async () => ({ ok: arf ? arf.start() : false, available: Boolean(arf?.available) }));
   ipcMain.handle('arf:send', async (_e, code) => ({ ok: arf ? arf.send(code) : false }));
+  ipcMain.handle('arf:write', async (_e, data) => ({ ok: arf ? arf.writeRaw(data) : false }));
+  ipcMain.handle('arf:resize', async (_e, { cols, rows } = {}) => ({ ok: arf ? arf.resize(cols, rows) : false }));
   ipcMain.handle('arf:interrupt', async () => ({ ok: arf ? arf.interrupt() : false }));
   ipcMain.handle('arf:restart', async () => ({ ok: arf ? arf.restart() : false }));
 

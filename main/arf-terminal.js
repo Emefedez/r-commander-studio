@@ -52,19 +52,23 @@ class ArfTerminal extends EventEmitter {
       return false;
     }
 
-    // Spawn arf inside a real PTY using python3's stdlib pty module so arf runs interactively with colors
+    // Spawn arf inside a real PTY using python3's stdlib pty module so arf runs interactively with full VT100/colors/resize
     const pyBridge = `
-import os, pty, select, signal, sys, termios, struct, fcntl
+import os, pty, re, select, signal, sys, termios, struct, fcntl
 pid, fd = pty.fork()
 if pid == 0:
-    os.execvp(sys.argv[1], [sys.argv[1], "--no-history"])
+    os.execvp(sys.argv[1], [sys.argv[1]])
 else:
-    try:
-        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 36, 120, 0, 0))
-    except Exception:
-        pass
+    def set_winsize(rows, cols):
+        try:
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", max(4, rows), max(20, cols), 0, 0))
+            os.kill(pid, signal.SIGWINCH)
+        except Exception:
+            pass
+    set_winsize(24, 100)
     stdin_fd = sys.stdin.fileno()
     stdout_fd = sys.stdout.fileno()
+    resize_re = re.compile(rb"\\x1b\\]9999;(\\d+);(\\d+)\\x07")
     while True:
         try:
             r, _, _ = select.select([fd, stdin_fd], [], [], 0.25)
@@ -72,23 +76,22 @@ else:
             break
         if fd in r:
             try:
-                data = os.read(fd, 4096)
+                data = os.read(fd, 8192)
                 if not data:
                     break
-                if b"\\x1b[6n" in data:
-                    try:
-                        os.write(fd, b"\\x1b[1;1R")
-                    except OSError:
-                        pass
                 os.write(stdout_fd, data)
             except OSError:
                 break
         if stdin_fd in r:
             try:
-                inp = os.read(stdin_fd, 4096)
+                inp = os.read(stdin_fd, 8192)
                 if not inp:
                     break
-                os.write(fd, inp)
+                for m in resize_re.finditer(inp):
+                    set_winsize(int(m.group(2)), int(m.group(1)))
+                inp = resize_re.sub(b"", inp)
+                if inp:
+                    os.write(fd, inp)
             except OSError:
                 break
     try:
@@ -112,12 +115,14 @@ else:
       this.emit('status', 'ready');
 
       proc.stdout.on('data', (buf) => {
-        const clean = sanitizePtyOutput(buf.toString('utf8'));
-        if (clean) this.emit('output', { stream: 'stdout', text: clean });
+        const raw = buf.toString('utf8');
+        const clean = sanitizePtyOutput(raw);
+        if (raw) this.emit('output', { stream: 'stdout', raw, text: clean });
       });
       proc.stderr.on('data', (buf) => {
-        const clean = sanitizePtyOutput(buf.toString('utf8'));
-        if (clean) this.emit('output', { stream: 'stderr', text: clean });
+        const raw = buf.toString('utf8');
+        const clean = sanitizePtyOutput(raw);
+        if (raw) this.emit('output', { stream: 'stderr', raw, text: clean });
       });
       proc.on('error', (err) => {
         this._running = false;
@@ -133,6 +138,30 @@ else:
       return true;
     } catch {
       this.emit('status', 'unavailable');
+      return false;
+    }
+  }
+
+  writeRaw(data) {
+    if (!this._proc || !this._running) {
+      if (!this.start()) return false;
+    }
+    try {
+      this._proc.stdin.write(String(data ?? ''), 'utf8');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  resize(cols, rows) {
+    if (!this._proc || !this._running) return false;
+    const c = Math.max(20, Math.min(400, Math.round(Number(cols) || 100)));
+    const r = Math.max(4, Math.min(200, Math.round(Number(rows) || 24)));
+    try {
+      this._proc.stdin.write(`\x1b]9999;${c};${r}\x07`, 'utf8');
+      return true;
+    } catch {
       return false;
     }
   }

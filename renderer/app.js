@@ -1060,11 +1060,143 @@ boxplot(Sepal.Length ~ Species, data = iris,
     appendAnsi($('consoleOut'), text, cls, 'R Console', 1500);
   }
 
-  function appendArf(text, cls = '') {
+  let arfTerm = null;
+  let arfFitAddon = null;
+  let arfResizeObserver = null;
+
+  function initArfXterm() {
+    if (arfTerm || typeof window.Terminal !== 'function') return;
+    const host = $('arfXtermHost');
+    if (!host) return;
+    const cs = getComputedStyle(document.documentElement);
+    const bg = cs.getPropertyValue('--bg-editor').trim() || '#282A36';
+    const fg = cs.getPropertyValue('--fg').trim() || '#F8F8F2';
+    arfTerm = new window.Terminal({
+      cursorBlink: true,
+      fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Consolas, monospace',
+      fontSize: 12.5,
+      lineHeight: 1.35,
+      scrollback: 5000,
+      theme: {
+        background: bg,
+        foreground: fg,
+        cursor: '#BD93F9',
+        selectionBackground: 'rgba(189, 147, 249, 0.35)',
+        black: '#21222C',
+        red: '#FF5555',
+        green: '#50FA7B',
+        yellow: '#F1FA8C',
+        blue: '#BD93F9',
+        magenta: '#FF79C6',
+        cyan: '#8BE9FD',
+        white: '#F8F8F2',
+        brightBlack: '#6272A4',
+        brightRed: '#FF6E6E',
+        brightGreen: '#69FF94',
+        brightYellow: '#FFFFA5',
+        brightBlue: '#D6ACFF',
+        brightMagenta: '#FF92DF',
+        brightCyan: '#A4FFFF',
+        brightWhite: '#FFFFFF'
+      }
+    });
+    if (window.FitAddon?.FitAddon) {
+      arfFitAddon = new window.FitAddon.FitAddon();
+      arfTerm.loadAddon(arfFitAddon);
+    }
+    arfTerm.open(host);
+    arfTerm.onData((data) => {
+      window.studio?.arfWrite?.(data);
+    });
+    arfTerm.attachCustomKeyEventHandler((ev) => {
+      // Let Ctrl+Shift+C copy and Ctrl+Shift+V paste cleanly
+      if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && ev.key.toLowerCase() === 'c' && ev.type === 'keydown') {
+        const sel = arfTerm.getSelection();
+        if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+        return false;
+      }
+      if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && ev.key.toLowerCase() === 'v' && ev.type === 'keydown') {
+        navigator.clipboard.readText().then((clip) => {
+          if (clip) window.studio?.arfWrite?.(clip);
+        }).catch(() => {});
+        return false;
+      }
+      return true;
+    });
+    host.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const isEs = getLang() === 'es';
+      const sel = arfTerm?.getSelection?.() || '';
+      showContextMenu(e.clientX, e.clientY, [
+        ...(sel
+          ? [
+              {
+                icon: 'copy',
+                label: isEs ? 'Copiar selección' : 'Copy Selection',
+                action: async () => {
+                  await navigator.clipboard.writeText(sel);
+                  showToast(t('outCopiedToast'));
+                }
+              },
+              {
+                icon: 'edit',
+                label: isEs ? 'Insertar selección en editor' : 'Insert Selection in Editor',
+                action: () => {
+                  const ed = state.editors[state.focusedGroup];
+                  if (ed) insertTextAtCursor(ed, sel);
+                }
+              }
+            ]
+          : []),
+        {
+          icon: 'paste-doc',
+          label: isEs ? 'Pegar en arf' : 'Paste into arf',
+          action: async () => {
+            const clip = await navigator.clipboard.readText().catch(() => '');
+            if (clip) window.studio?.arfWrite?.(clip);
+            arfTerm?.focus();
+          }
+        },
+        { sep: true },
+        { icon: 'stop', label: isEs ? 'Interrumpir (Ctrl+C)' : 'Interrupt (Ctrl+C)', action: () => window.studio?.arfInterrupt?.() },
+        { icon: 'clear', label: isEs ? 'Limpiar terminal arf' : 'Clear arf Terminal', action: () => arfTerm?.clear() },
+        { icon: 'restart', label: isEs ? 'Reiniciar arf' : 'Restart arf', action: () => window.studio?.arfRestart?.() }
+      ]);
+    });
+    if (typeof ResizeObserver !== 'undefined') {
+      arfResizeObserver = new ResizeObserver(() => fitArfXterm());
+      arfResizeObserver.observe(host);
+    }
+    fitArfXterm();
+  }
+
+  function fitArfXterm() {
+    if (!arfTerm || !arfFitAddon) return;
+    const host = $('arfXtermHost');
+    if (!host || host.offsetParent === null || host.clientWidth < 30 || host.clientHeight < 30) return;
+    try {
+      arfFitAddon.fit();
+      window.studio?.arfResize?.({ cols: arfTerm.cols, rows: arfTerm.rows });
+    } catch {
+      // ignore layout race
+    }
+  }
+
+  function appendArf(text, cls = '', raw = null) {
+    initArfXterm();
+    if (arfTerm) {
+      arfTerm.write(raw != null ? raw : String(text || '').replace(/\n/g, '\r\n'));
+      return;
+    }
     appendAnsi($('arfOut'), text, cls, 'arf Terminal', 1200);
   }
 
   async function ensureArfStarted() {
+    initArfXterm();
+    requestAnimationFrame(() => {
+      fitArfXterm();
+      arfTerm?.focus();
+    });
     if (state.arfStarted) return true;
     if (!state.arfAvailable) {
       appendArf(t('arfNotFound') + '\n', 'console-line-err');
@@ -3189,8 +3321,10 @@ boxplot(Sepal.Length ~ Species, data = iris,
         showToast(t('toastRestarted'));
         break;
       case 'clear-console':
-        if (state.activePanelTab === 'arf') $('arfOut').textContent = '';
-        else $('consoleOut').textContent = '';
+        if (state.activePanelTab === 'arf') {
+          if (arfTerm) arfTerm.clear();
+          else $('arfOut').textContent = '';
+        } else $('consoleOut').textContent = '';
         break;
       case 'refresh-workspace': {
         const snap = await window.studio.snapshot();
@@ -3675,7 +3809,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
   // --- Wire Main Process Events ---
   if (hasBridge) {
     window.studio.onROutput(({ stream, text }) => appendConsole(text, stream === 'stderr' ? 'console-line-err' : ''));
-    window.studio.onArfOutput(({ stream, text }) => appendArf(text, stream === 'stderr' ? 'console-line-err' : ''));
+    window.studio.onArfOutput(({ stream, raw, text }) => appendArf(text, stream === 'stderr' ? 'console-line-err' : '', raw));
     window.studio.onRViewTable(({ name, title, source }) =>
       openRTableTab({ objectName: name, title: title || name, source: source || 'global', editable: false })
     );

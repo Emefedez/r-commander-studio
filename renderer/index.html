@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>R Commander Studio</title>
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -251,8 +252,9 @@
             </div>
 
             <div class="dock-pane" id="dockArf" hidden>
-              <div class="console-out" id="arfOut"></div>
-              <div class="console-input-row">
+              <div class="arf-xterm-host" id="arfXtermHost"></div>
+              <div class="console-out" id="arfOut" hidden></div>
+              <div class="console-input-row" hidden>
                 <span class="console-prompt arf-prompt" data-icon="prompt-arrow" data-size="13"></span>
                 <input id="arfInput" type="text" data-i18n-placeholder="arfPlaceholder" autocomplete="off">
               </div>
@@ -527,6 +529,8 @@
   <script src="../shared/themes.js"></script>
   <script src="../shared/file-groups-model.js"></script>
   <script src="../shared/workbench-layout.js"></script>
+  <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
   <script src="icons.js"></script>
   <script src="i18n.js"></script>
