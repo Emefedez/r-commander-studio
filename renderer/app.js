@@ -83,6 +83,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     editors: [null, null],
     tableViewers: [null, null],
     tabs: [],
+    closedTabs: [],
     activeTabByGroup: [null, null],
     focusedGroup: 0,
     splitOpen: false,
@@ -1721,6 +1722,14 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const [tab] = state.tabs.splice(idx, 1);
     const g = tab.groupIndex;
     if (tab.kind === 'code') {
+      if (!Array.isArray(state.closedTabs)) state.closedTabs = [];
+      state.closedTabs.push({
+        name: tab.name,
+        filePath: tab.filePath,
+        language: tab.language,
+        content: tab.model ? tab.model.getValue() : '',
+        groupIndex: g
+      });
       if (isRmdOrR(tab.language)) window.studio.lspDidClose({ uri: tab.uri });
       state.diagnosticsByUri.delete(tab.uri);
       tab.model.dispose();
@@ -2727,8 +2736,30 @@ boxplot(Sepal.Length ~ Species, data = iris,
   async function handleStudioCommand(cmd) {
     switch (cmd) {
       case 'new-r':
+      case 'new-tab':
         createCodeTab({ name: `script-${state.nextTabNum}.R`, content: '', language: 'r' });
         break;
+      case 'reopen-closed-tab': {
+        const last = Array.isArray(state.closedTabs) ? state.closedTabs.pop() : null;
+        if (last) {
+          createCodeTab({
+            name: last.name,
+            filePath: last.filePath || null,
+            content: last.content || '',
+            language: last.language || 'r',
+            dirty: !last.filePath,
+            groupIndex: last.groupIndex ?? state.focusedGroup
+          });
+        } else {
+          createCodeTab({ name: `script-${state.nextTabNum}.R`, content: '', language: 'r' });
+        }
+        break;
+      }
+      case 'close-tab': {
+        const cur = activeTab();
+        if (cur) closeTab(cur.id);
+        break;
+      }
       case 'new-rmd':
         createCodeTab({ name: `report-${state.nextTabNum}.Rmd`, content: DEFAULT_RMD_DOC, language: 'rmd' });
         break;
@@ -2957,8 +2988,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
       accel
     });
     return [
-      cmdEntry('new-r', 'newRScript', 'Ctrl+N'),
+      cmdEntry('new-r', 'newRScript', 'Ctrl+N / Ctrl+T'),
       cmdEntry('new-rmd', 'newRmdDoc', 'Ctrl+Shift+N'),
+      cmdEntry('close-tab', 'closeTab', 'Ctrl+W'),
       cmdEntry('open', 'openFile', 'Ctrl+O'),
       cmdEntry('open-folder', 'openFolder', 'Ctrl+Shift+O'),
       cmdEntry('load-workspace', 'loadWorkspace'),
@@ -3241,6 +3273,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
     });
     ed.addCommand(state.monaco.KeyMod.Alt | state.monaco.KeyCode.Minus, () => insertTextAtCursor(ed, ' <- '));
     ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyMod.Shift | state.monaco.KeyCode.KeyM, () => insertTextAtCursor(ed, ' |> '));
+    ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyCode.KeyT, () => handleStudioCommand('new-r'));
+    ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyMod.Shift | state.monaco.KeyCode.KeyT, () => handleStudioCommand('reopen-closed-tab'));
+    ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyCode.KeyW, () => handleStudioCommand('close-tab'));
     ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyCode.KeyI, () => copilot?.openInlineFix());
     ed.addCommand(state.monaco.KeyCode.F1, () => openDocsForCursor());
     ed.addAction({
@@ -3441,6 +3476,12 @@ boxplot(Sepal.Length ~ Species, data = iris,
     } else if (key === 'n') {
       e.preventDefault();
       handleStudioCommand(e.shiftKey ? 'new-rmd' : 'new-r');
+    } else if (!e.altKey && key === 't') {
+      e.preventDefault();
+      handleStudioCommand(e.shiftKey ? 'reopen-closed-tab' : 'new-r');
+    } else if (!e.altKey && !e.shiftKey && key === 'w') {
+      e.preventDefault();
+      handleStudioCommand('close-tab');
     } else if (e.shiftKey && key === 'v') {
       e.preventDefault();
       handleStudioCommand('toggle-preview');

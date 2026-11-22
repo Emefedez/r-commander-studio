@@ -117,6 +117,7 @@ function buildAppMenu(lang = mainI18n.getLang()) {
       label: t('menuFile'),
       submenu: [
         { label: t('newRScript'), accelerator: 'CmdOrCtrl+N', click: () => sendToRenderer('menu:command', 'new-r') },
+        { label: t('newTabTitle'), accelerator: 'CmdOrCtrl+T', click: () => sendToRenderer('menu:command', 'new-r') },
         { label: t('newRmdDoc'), accelerator: 'CmdOrCtrl+Shift+N', click: () => sendToRenderer('menu:command', 'new-rmd') },
         { type: 'separator' },
         { label: t('openFile'), accelerator: 'CmdOrCtrl+O', click: () => sendToRenderer('menu:command', 'open') },
@@ -126,6 +127,7 @@ function buildAppMenu(lang = mainI18n.getLang()) {
         { type: 'separator' },
         { label: t('save'), accelerator: 'CmdOrCtrl+S', click: () => sendToRenderer('menu:command', 'save') },
         { label: t('saveAs'), accelerator: 'CmdOrCtrl+Shift+S', click: () => sendToRenderer('menu:command', 'save-as') },
+        { label: t('closeTab'), accelerator: 'CmdOrCtrl+W', click: () => sendToRenderer('menu:command', 'close-tab') },
         { type: 'separator' },
         ...rcmdrSub('File'),
         { type: 'separator' },

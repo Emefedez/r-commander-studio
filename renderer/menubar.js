@@ -69,7 +69,7 @@
         {
           label: t('menuFile'),
           items: [
-            { label: t('newRScript'), accel: 'Ctrl+N', cmd: 'new-r' },
+            { label: t('newRScript'), accel: 'Ctrl+N / Ctrl+T', cmd: 'new-r' },
             { label: t('newRmdDoc'), accel: 'Ctrl+Shift+N', cmd: 'new-rmd' },
             { sep: true },
             { label: t('openFile'), accel: 'Ctrl+O', cmd: 'open' },
@@ -80,6 +80,7 @@
             { label: t('save'), accel: 'Ctrl+S', cmd: 'save' },
             { label: t('saveAs'), accel: 'Ctrl+Shift+S', cmd: 'save-as' },
             { label: t('menuAutoSave'), cmd: 'toggle-autosave' },
+            { label: t('closeTab'), accel: 'Ctrl+W', cmd: 'close-tab' },
             { sep: true },
             ...rcmdrSub('File')
           ]
