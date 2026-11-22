@@ -517,6 +517,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
   async function switchLanguage(lang) {
     const clean = setLang(lang);
     $('statusLangBtn').textContent = clean.toUpperCase();
+    if ($('btnTopLang')) $('btnTopLang').textContent = clean.toUpperCase();
     $('statusThemeBtn').textContent = state.theme === 'light' ? t('themeLight') : t('themeDracula');
 
     await window.studio.setLanguage(clean);
@@ -572,11 +573,12 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
   }
 
-  // --- ANSI Terminal Output Renderer (for both R Console and arf) ---
-  function appendAnsi(container, text, cls = '') {
-    const block = document.createElement('span');
-    block.className = `console-block${cls ? ' ' + cls : ''}`;
+  // --- ANSI Terminal Output Renderer + Top-Right (...) Hover Actions (for both R Console and arf) ---
+  let activeOutputMenuBtn = null;
+  let lastArfBlock = null;
+  let lastArfBlockTime = 0;
 
+  function renderAnsiInto(targetEl, text) {
     if (text.includes('\x1b[')) {
       const parts = text.split(/(\x1b\[[0-9;]*m)/g);
       let classes = [];
@@ -596,23 +598,318 @@ boxplot(Sepal.Length ~ Species, data = iris,
           const span = document.createElement('span');
           if (classes.length) span.className = classes.join(' ');
           span.textContent = part;
-          block.append(span);
+          targetEl.append(span);
         }
       }
     } else {
-      block.textContent = text;
+      targetEl.append(document.createTextNode(text));
+    }
+  }
+
+  function stripAnsi(str) {
+    return String(str || '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+  }
+
+  function formatOutputForDocument(rawText, { lang = 'markdown', source = 'R' } = {}) {
+    const clean = stripAnsi(rawText).trim();
+    if (!clean) return '';
+    if (lang === 'r') {
+      const commented = clean
+        .split(/\r?\n/)
+        .map((l) => (l.startsWith('>') || l.startsWith('+') ? l.replace(/^[>+]\s?/, '') : `#> ${l}`))
+        .join('\n');
+      return `\n# --- ${source} Output ---\n${commented}\n`;
+    }
+    return `\n\n### ${source} Output\n\n\`\`\`text\n${clean}\n\`\`\`\n`;
+  }
+
+  function insertOutputIntoCodeTab(tab, rawText, source = 'R') {
+    if (!tab || tab.kind !== 'code' || !tab.model) return;
+    const snippet = formatOutputForDocument(rawText, { lang: tab.language, source });
+    if (!snippet) return;
+    const model = tab.model;
+    const ed = state.editors[tab.groupIndex];
+    const sel = ed?.getSelection();
+    if (sel && !sel.isEmpty()) {
+      model.pushEditOperations([], [{ range: sel, text: snippet }], () => null);
+    } else {
+      const lastLine = model.getLineCount();
+      const lastCol = model.getLineMaxColumn(lastLine);
+      model.pushEditOperations(
+        [],
+        [{ range: new state.monaco.Range(lastLine, lastCol, lastLine, lastCol), text: snippet }],
+        () => null
+      );
+    }
+    activateTab(tab.id);
+    state.editors[tab.groupIndex]?.revealLine(model.getLineCount());
+    showToast(t('outPastedToast', tab.name));
+  }
+
+  function collectWorkspaceDocuments(nodes, out = []) {
+    for (const n of nodes || []) {
+      if (n.isDir) collectWorkspaceDocuments(n.children, out);
+      else if (/\.(rmd|qmd|md|markdown|r|txt)$/i.test(n.name)) out.push(n);
+    }
+    return out;
+  }
+
+  function openDocPickerModal(title, items, onPick) {
+    const backdrop = $('docPickerBackdrop');
+    const list = $('docPickerList');
+    $('docPickerTitle').textContent = title;
+    list.textContent = '';
+    for (const item of items) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'palette-item';
+      row.innerHTML =
+        `<span class="palette-cat studio">${item.badge || 'DOC'}</span>` +
+        `<span class="palette-main"><span class="palette-label"></span><span class="palette-detail"></span></span>`;
+      row.querySelector('.palette-label').textContent = item.label;
+      row.querySelector('.palette-detail').textContent = item.detail || '';
+      row.addEventListener('click', () => {
+        backdrop.hidden = true;
+        onPick(item);
+      });
+      list.append(row);
+    }
+    backdrop.hidden = false;
+  }
+
+  function closeOutputActionMenu() {
+    const menu = $('outputActionMenu');
+    if (menu) menu.hidden = true;
+    if (activeOutputMenuBtn) {
+      activeOutputMenuBtn.classList.remove('menu-open');
+      activeOutputMenuBtn = null;
+    }
+  }
+
+  document.addEventListener('click', (e) => {
+    const menu = $('outputActionMenu');
+    if (menu && !menu.hidden && !menu.contains(e.target) && !e.target.closest('.console-block-more')) {
+      closeOutputActionMenu();
+    }
+  });
+
+  function openOutputActionMenu(btnEl, blockEl, source = 'R Console') {
+    const menu = $('outputActionMenu');
+    if (!menu) return;
+    closeOutputActionMenu();
+    activeOutputMenuBtn = btnEl;
+    btnEl.classList.add('menu-open');
+
+    const getRawText = () => stripAnsi(blockEl.querySelector('.console-block-content')?.textContent || blockEl.textContent || '').trim();
+    const getHtmlContent = () => `<pre>${blockEl.querySelector('.console-block-content')?.innerHTML || blockEl.innerHTML}</pre>`;
+
+    menu.textContent = '';
+    const mkBtn = (iconName, label, onClick, isSub = false) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `output-action-btn${isSub ? ' sub-item' : ''}`;
+      b.innerHTML = `<span class="ico">${svg(iconName, { size: 13 })}</span><span></span>`;
+      b.querySelector('span:last-child').textContent = label;
+      b.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        closeOutputActionMenu();
+        await onClick();
+      });
+      return b;
+    };
+
+    const mkSep = () => {
+      const s = document.createElement('div');
+      s.className = 'menubar-sep';
+      return s;
+    };
+
+    const mkHead = (label) => {
+      const h = document.createElement('div');
+      h.className = 'output-action-header';
+      h.textContent = label;
+      return h;
+    };
+
+    menu.append(
+      mkBtn('copy', t('outCopyText'), async () => {
+        await navigator.clipboard.writeText(getRawText());
+        showToast(t('outCopiedToast'));
+      }),
+      mkBtn('markdown', t('outCopyMarkdown'), async () => {
+        const md = formatOutputForDocument(getRawText(), { lang: 'markdown', source }).trim();
+        await navigator.clipboard.writeText(md);
+        showToast(t('outCopiedToast'));
+      }),
+      mkBtn('new-window', t('outOpenNewWindow'), async () => {
+        if (window.studio?.openOutputWindow) {
+          await window.studio.openOutputWindow({
+            title: `${source} — R Commander Studio`,
+            sourceLabel: source,
+            htmlContent: getHtmlContent(),
+            rawText: getRawText(),
+            isLight: state.theme === 'light'
+          });
+        }
+      }),
+      mkSep(),
+      mkHead(t('outPasteIntoDoc')),
+      mkBtn(
+        'file',
+        t('outPasteCurrentDoc'),
+        async () => {
+          const raw = getRawText();
+          const codeTabs = state.tabs.filter((x) => x.kind === 'code');
+          const cur = activeTab();
+          if (cur && cur.kind === 'code' && codeTabs.length <= 1) {
+            insertOutputIntoCodeTab(cur, raw, source);
+          } else if (codeTabs.length > 1) {
+            openDocPickerModal(
+              t('outPickOpenDocTitle'),
+              codeTabs.map((tab) => ({
+                tab,
+                badge: tab.language.toUpperCase(),
+                label: tab.name + (tab.id === cur?.id ? ' (active)' : ''),
+                detail: tab.filePath || `Group ${tab.groupIndex + 1}`
+              })),
+              (picked) => insertOutputIntoCodeTab(picked.tab, raw, source)
+            );
+          } else if (cur && cur.kind === 'code') {
+            insertOutputIntoCodeTab(cur, raw, source);
+          } else {
+            const tab = createCodeTab({
+              name: `output-${state.nextTabNum}.md`,
+              content: `# ${source} Output\n${formatOutputForDocument(raw, { lang: 'markdown', source })}`,
+              language: 'markdown',
+              dirty: true
+            });
+            openPreview('live');
+            showToast(t('outPastedToast', tab.name));
+          }
+        },
+        true
+      ),
+      mkBtn(
+        'folder-open',
+        t('outPasteWorkspaceDoc'),
+        async () => {
+          const raw = getRawText();
+          const wsDocs = collectWorkspaceDocuments(state.folderTree);
+          if (wsDocs.length) {
+            openDocPickerModal(
+              t('outPickWorkspaceDocTitle'),
+              wsDocs.map((d) => ({
+                path: d.path,
+                name: d.name,
+                badge: (d.name.split('.').pop() || 'DOC').toUpperCase(),
+                label: d.name,
+                detail: d.path
+              })),
+              async (picked) => {
+                const openTab = state.tabs.find((x) => x.kind === 'code' && x.filePath === picked.path);
+                if (openTab) {
+                  insertOutputIntoCodeTab(openTab, raw, source);
+                  await saveFileAction(false);
+                } else {
+                  const file = await window.studio.openPath(picked.path);
+                  if (file) {
+                    const lang = detectLanguage(file.name);
+                    const nextContent = `${file.content || ''}${formatOutputForDocument(raw, { lang, source })}`;
+                    await window.studio.saveFile({ filePath: picked.path, content: nextContent });
+                    createCodeTab({ name: file.name, filePath: picked.path, content: nextContent, language: lang, dirty: false });
+                    showToast(t('outPastedToast', file.name));
+                  }
+                }
+              }
+            );
+          } else {
+            showToast(t('outNoWorkspaceDocs'));
+            const files = await window.studio.openFile();
+            if (files && files.length) {
+              const f = files[0];
+              const lang = detectLanguage(f.name);
+              const nextContent = `${f.content || ''}${formatOutputForDocument(raw, { lang, source })}`;
+              await window.studio.saveFile({ filePath: f.filePath, content: nextContent });
+              createCodeTab({ name: f.name, filePath: f.filePath, content: nextContent, language: lang, dirty: false });
+              showToast(t('outPastedToast', f.name));
+            }
+          }
+        },
+        true
+      ),
+      mkBtn(
+        'new-file',
+        t('outPasteNewDoc'),
+        async () => {
+          const raw = getRawText();
+          const docName = `r-output-${state.nextTabNum}.md`;
+          const mdContent = `---\ntitle: "${source} Output"\ndate: "AUTOMATIC"\n---\n${formatOutputForDocument(raw, { lang: 'markdown', source })}`;
+          const tab = createCodeTab({ name: docName, content: mdContent, language: 'markdown', dirty: true });
+          openPreview('live');
+          showToast(t('outPastedToast', tab.name));
+        },
+        true
+      )
+    );
+
+    menu.hidden = false;
+    const rect = btnEl.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const top = Math.max(8, Math.min(window.innerHeight - menuRect.height - 8, rect.bottom + 4));
+    const left = Math.max(8, Math.min(window.innerWidth - menuRect.width - 8, rect.right - menuRect.width));
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
+  }
+
+  function createHoverableOutputBlock(container, cls = '', source = 'R Console') {
+    const block = document.createElement('div');
+    block.className = `console-block${cls ? ' ' + cls : ''}`;
+    const contentSpan = document.createElement('span');
+    contentSpan.className = 'console-block-content';
+    const moreBtn = document.createElement('button');
+    moreBtn.type = 'button';
+    moreBtn.className = 'console-block-more';
+    moreBtn.title = t('outMoreActions');
+    moreBtn.innerHTML = svg('more', { size: 13 });
+    moreBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openOutputActionMenu(moreBtn, block, source);
+    });
+    block.append(contentSpan, moreBtn);
+    container.append(block);
+    return { block, contentSpan };
+  }
+
+  function appendAnsi(container, text, cls = '', source = 'R Console', coalesceMs = 0) {
+    if (!text) return;
+    const now = Date.now();
+    if (
+      coalesceMs > 0 &&
+      lastArfBlock &&
+      lastArfBlock.block.parentElement === container &&
+      now - lastArfBlockTime < coalesceMs
+    ) {
+      renderAnsiInto(lastArfBlock.contentSpan, text);
+      lastArfBlockTime = now;
+      container.scrollTop = container.scrollHeight;
+      return;
     }
 
-    container.append(block);
+    const created = createHoverableOutputBlock(container, cls, source);
+    renderAnsiInto(created.contentSpan, text);
+    if (coalesceMs > 0) {
+      lastArfBlock = created;
+      lastArfBlockTime = now;
+    }
     container.scrollTop = container.scrollHeight;
   }
 
   function appendConsole(text, cls = '') {
-    appendAnsi($('consoleOut'), text, cls);
+    appendAnsi($('consoleOut'), text, cls, 'R Console', 0);
   }
 
   function appendArf(text, cls = '') {
-    appendAnsi($('arfOut'), text, cls);
+    appendAnsi($('arfOut'), text, cls, 'arf Terminal', 650);
   }
 
   async function ensureArfStarted() {
@@ -718,6 +1015,25 @@ boxplot(Sepal.Length ~ Species, data = iris,
       empty.textContent = res?.error || `No documentation found for ${clean}`;
       host.append(empty);
       return;
+    }
+    if (Array.isArray(res.rcmdrMatches) && res.rcmdrMatches.length) {
+      const box = document.createElement('div');
+      box.className = 'help-rcmdr-matches';
+      const boxTitle = document.createElement('div');
+      boxTitle.className = 'help-rcmdr-title';
+      boxTitle.textContent = `R Commander (${res.rcmdrMatches.length})`;
+      box.append(boxTitle);
+      for (const m of res.rcmdrMatches.slice(0, 6)) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'help-rcmdr-btn';
+        btn.innerHTML = `<span class="help-rcmdr-label"></span><span class="help-rcmdr-path"></span>`;
+        btn.querySelector('.help-rcmdr-label').textContent = m.label + (m.altLabel ? ` (${m.altLabel})` : '');
+        btn.querySelector('.help-rcmdr-path').textContent = m.path;
+        btn.addEventListener('click', () => triggerRcmdrCommand(m.id));
+        box.append(btn);
+      }
+      host.append(box);
     }
     const head = document.createElement('div');
     head.className = 'help-doc-head';
@@ -1714,18 +2030,42 @@ boxplot(Sepal.Length ~ Species, data = iris,
     ed.focus();
   }
 
-  // --- Preview & Knit ---
+  // --- Preview, Rich Markdown Viewer (NoteComplete-grade) & Knit ---
   function renderLivePreview() {
     const tab = activeTab();
     if (!tab || tab.kind !== 'code') return;
     $('previewTitle').textContent = t('previewLiveTitle', tab.name);
     $('previewBody').hidden = false;
     $('previewIframe').hidden = true;
-    $('btnPreviewModeLive').classList.add('active');
+    $('btnPreviewModeLive').classList.toggle('active', state.previewMode === 'live');
+    $('btnPreviewModeFull')?.classList.toggle('active', state.previewMode === 'full');
     $('btnPreviewModeKnit').classList.remove('active');
 
-    const { html, chunks } = window.StudioMarkdownPreview.renderMarkdown(tab.model.getValue());
+    const { html, chunks, headings } = window.StudioMarkdownPreview.renderMarkdown(tab.model.getValue());
     $('previewBody').innerHTML = html;
+
+    // Populate Outline / TOC bar
+    const outlineBar = $('previewOutlineBar');
+    if (outlineBar) {
+      outlineBar.textContent = '';
+      if (headings && headings.length) {
+        for (const h of headings) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'preview-toc-item';
+          b.textContent = `${'·'.repeat(Math.max(0, h.level - 1))} ${h.text}`;
+          b.addEventListener('click', () => {
+            const target = $('previewBody').querySelector(`[id="${CSS.escape(h.slug)}"]`);
+            target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+          outlineBar.append(b);
+        }
+      } else {
+        outlineBar.hidden = true;
+      }
+    }
+
+    // Wire Run Chunk buttons
     for (const btn of $('previewBody').querySelectorAll('[data-run-chunk]')) {
       btn.title = t('runChunkBtn');
       btn.addEventListener('click', () => {
@@ -1733,19 +2073,50 @@ boxplot(Sepal.Length ~ Species, data = iris,
         if (chunks[idx]) executeR(chunks[idx], { label: `Chunk ${idx + 1}` });
       });
     }
+
+    // Wire Copy Code buttons (keeping existing copy buttons functional!)
+    for (const btn of $('previewBody').querySelectorAll('[data-copy-code]')) {
+      btn.addEventListener('click', async () => {
+        const raw = decodeURIComponent(btn.getAttribute('data-copy-code') || '');
+        await navigator.clipboard.writeText(raw);
+        showToast(t('outCopiedToast'));
+      });
+    }
+
+    // Wire internal #anchor links inside the Markdown Viewer (NoteComplete headingFor)
+    for (const a of $('previewBody').querySelectorAll('a[href^="#"]')) {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const frag = (a.getAttribute('href') || '').slice(1);
+        let target = [...$('previewBody').querySelectorAll('[id]')].find((el) => el.id === frag);
+        if (!target && headings?.length) {
+          const idx = window.StudioMarkdownPreview.headingFor(headings, frag);
+          if (idx >= 0) {
+            const hEls = $('previewBody').querySelectorAll('h1, h2, h3, h4, h5, h6');
+            target = hEls[idx];
+          }
+        }
+        target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
   }
 
   function openPreview(mode = 'live') {
     state.previewOpen = true;
     state.previewMode = mode;
-    $('previewPane').hidden = false;
+    const pane = $('previewPane');
+    const edGroups = $('editorGroups');
+    pane.hidden = false;
+    pane.classList.toggle('full-viewer', mode === 'full');
+    edGroups.hidden = mode === 'full';
     $('btnPreview').classList.add('active');
-    if (mode === 'live') {
+    if (mode === 'live' || mode === 'full') {
       renderLivePreview();
     } else {
       $('previewBody').hidden = true;
       $('previewIframe').hidden = false;
       $('btnPreviewModeLive').classList.remove('active');
+      $('btnPreviewModeFull')?.classList.remove('active');
       $('btnPreviewModeKnit').classList.add('active');
       $('previewIframe').srcdoc =
         state.knittedHtml || `<p style="font-family:sans-serif;padding:16px;color:#6272a4">${t('previewKnitEmpty')}</p>`;
@@ -1756,6 +2127,8 @@ boxplot(Sepal.Length ~ Species, data = iris,
   function closePreview() {
     state.previewOpen = false;
     $('previewPane').hidden = true;
+    $('previewPane').classList.remove('full-viewer');
+    $('editorGroups').hidden = false;
     $('btnPreview').classList.remove('active');
     state.editors.forEach((ed) => ed?.layout());
   }
@@ -1802,7 +2175,8 @@ boxplot(Sepal.Length ~ Species, data = iris,
         const kids = filterTree(node.children, words, [...parents, en, es]);
         if (kids.length) out.push({ ...node, children: kids, _expanded: true });
       } else {
-        const hay = fold([...parents, en, es, node.id || ''].join(' '));
+        const fns = Array.isArray(node.fns) ? node.fns : [];
+        const hay = fold([...parents, en, es, node.id || '', node.target || '', ...fns].join(' '));
         if (words.every((w) => hay.includes(w))) out.push(node);
       }
     }
@@ -2225,6 +2599,34 @@ boxplot(Sepal.Length ~ Species, data = iris,
       case 'r-help':
         openDocsForCursor();
         break;
+      case 'check-updates':
+        await checkAndPromptForUpdate(true);
+        break;
+      case 'toggle-update-on-open': {
+        if (window.studio?.updaterSettings) {
+          const cur = await window.studio.updaterSettings();
+          const next = !cur.checkOnOpen;
+          await window.studio.updaterSetCheckOnOpen(next);
+          showToast(`${t('checkForUpdatesOnOpen')}: ${next ? 'ON' : 'OFF'}`);
+        }
+        break;
+      }
+      case 'install-desktop': {
+        if (window.studio?.installDesktop) {
+          const res = await window.studio.installDesktop();
+          if (res?.ok) showToast(t('desktopInstalledToast'));
+        }
+        break;
+      }
+      case 'open-my-github':
+        window.studio?.openExternal('https://github.com/Emefedez');
+        break;
+      case 'open-repo-github':
+        window.studio?.openExternal('https://github.com/Emefedez/r-commander-studio');
+        break;
+      case 'open-vscode-ext-github':
+        window.studio?.openExternal('https://github.com/Emefedez/r-commander-in-vscode');
+        break;
       case 'undo':
       case 'redo':
       case 'find':
@@ -2235,38 +2637,76 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
   }
 
+  async function checkAndPromptForUpdate(manual = true, preloadedInfo = null) {
+    if (!window.studio?.updaterCheck) return;
+    if (manual) showToast(t('updateChecking'));
+    try {
+      const info = preloadedInfo || (await window.studio.updaterCheck({ manual }));
+      if (!info || !info.version) {
+        if (manual) showToast(t('updateUpToDate', info?.current || '0.1.0'));
+        return;
+      }
+      const yes = window.confirm(t('updateAvailablePrompt', info.version, info.current || '0.1.0'));
+      if (!yes) return;
+      if (info.install === 'appimage') {
+        showToast(t('updateInstalling', info.version));
+        const installed = await window.studio.updaterInstall();
+        if (window.confirm(t('updateInstalledRestart', installed.version))) {
+          await window.studio.updaterRestart();
+        }
+      } else {
+        await window.studio.openExternal(info.assetUrl || info.page || 'https://github.com/Emefedez/r-commander-studio/releases/latest');
+      }
+    } catch (err) {
+      if (manual) showToast(err.message || 'Update check failed', 'error');
+    }
+  }
+
   function getStudioCommandsList() {
+    const dictEn = window.STUDIO_I18N_DICT?.en || {};
+    const dictEs = window.STUDIO_I18N_DICT?.es || {};
+    const cmdEntry = (id, key, accel = '') => ({
+      id,
+      label: t(key),
+      labelAlt: `${dictEn[key] || ''} ${dictEs[key] || ''}`,
+      accel
+    });
     return [
-      { id: 'new-r', label: t('newRScript'), accel: 'Ctrl+N' },
-      { id: 'new-rmd', label: t('newRmdDoc'), accel: 'Ctrl+Shift+N' },
-      { id: 'open', label: t('openFile'), accel: 'Ctrl+O' },
-      { id: 'open-folder', label: t('openFolder'), accel: 'Ctrl+Shift+O' },
-      { id: 'load-workspace', label: t('loadWorkspace') },
-      { id: 'load-dataset-file', label: t('loadDatasetFile') },
-      { id: 'save', label: t('save'), accel: 'Ctrl+S' },
-      { id: 'save-as', label: t('saveAs'), accel: 'Ctrl+Shift+S' },
-      { id: 'run-selection', label: t('runSelection'), accel: 'Ctrl+Enter' },
-      { id: 'run-all', label: t('runAll'), accel: 'Ctrl+Shift+Enter' },
-      { id: 'knit', label: t('knitRmd'), accel: 'Ctrl+Shift+K' },
-      { id: 'toggle-split', label: t('splitEditor'), accel: 'Ctrl+\\' },
-      { id: 'move-tab-group', label: t('moveTabOtherGroup') },
-      { id: 'toggle-preview', label: t('togglePreview'), accel: 'Ctrl+Shift+V' },
-      { id: 'toggle-explorer-sidebar', label: t('toggleSidebar') },
-      { id: 'toggle-rcmdr-sidebar', label: t('toggleRcmdrSidebar') },
-      { id: 'toggle-panel', label: t('togglePanel') },
-      { id: 'toggle-panel-orientation', label: t('togglePanelOrientation') },
-      { id: 'layout-both-left', label: t('layoutBothLeft') },
-      { id: 'layout-explorer-left-rcmdr-right', label: t('layoutExplorerLeftRcmdrRight') },
-      { id: 'layout-rcmdr-left-explorer-right', label: t('layoutRcmdrLeftExplorerRight') },
-      { id: 'layout-both-right', label: t('layoutBothRight') },
-      { id: 'toggle-theme', label: t('toggleTheme') },
-      { id: 'switch-language', label: t('switchLanguage') },
-      { id: 'open-settings', label: t('openSettings'), accel: 'Ctrl+,' },
-      { id: 'r-help', label: t('rHelpMenu'), accel: 'F1' },
-      { id: 'interrupt-r', label: t('interruptR') },
-      { id: 'restart-r', label: t('restartR') },
-      { id: 'clear-console', label: t('clearConsole') },
-      { id: 'refresh-workspace', label: t('refreshWorkspace') }
+      cmdEntry('new-r', 'newRScript', 'Ctrl+N'),
+      cmdEntry('new-rmd', 'newRmdDoc', 'Ctrl+Shift+N'),
+      cmdEntry('open', 'openFile', 'Ctrl+O'),
+      cmdEntry('open-folder', 'openFolder', 'Ctrl+Shift+O'),
+      cmdEntry('load-workspace', 'loadWorkspace'),
+      cmdEntry('load-dataset-file', 'loadDatasetFile'),
+      cmdEntry('save', 'save', 'Ctrl+S'),
+      cmdEntry('save-as', 'saveAs', 'Ctrl+Shift+S'),
+      cmdEntry('run-selection', 'runSelection', 'Ctrl+Enter'),
+      cmdEntry('run-all', 'runAll', 'Ctrl+Shift+Enter'),
+      cmdEntry('knit', 'knitRmd', 'Ctrl+Shift+K'),
+      cmdEntry('toggle-split', 'splitEditor', 'Ctrl+\\'),
+      cmdEntry('move-tab-group', 'moveTabOtherGroup'),
+      cmdEntry('toggle-preview', 'togglePreview', 'Ctrl+Shift+V'),
+      cmdEntry('toggle-explorer-sidebar', 'toggleSidebar'),
+      cmdEntry('toggle-rcmdr-sidebar', 'toggleRcmdrSidebar'),
+      cmdEntry('toggle-panel', 'togglePanel'),
+      cmdEntry('toggle-panel-orientation', 'togglePanelOrientation'),
+      cmdEntry('layout-both-left', 'layoutBothLeft'),
+      cmdEntry('layout-explorer-left-rcmdr-right', 'layoutExplorerLeftRcmdrRight'),
+      cmdEntry('layout-rcmdr-left-explorer-right', 'layoutRcmdrLeftExplorerRight'),
+      cmdEntry('layout-both-right', 'layoutBothRight'),
+      cmdEntry('toggle-theme', 'toggleTheme'),
+      cmdEntry('switch-language', 'switchLanguage'),
+      cmdEntry('open-settings', 'openSettings', 'Ctrl+,'),
+      cmdEntry('r-help', 'rHelpMenu', 'F1'),
+      cmdEntry('interrupt-r', 'interruptR'),
+      cmdEntry('restart-r', 'restartR'),
+      cmdEntry('clear-console', 'clearConsole'),
+      cmdEntry('refresh-workspace', 'refreshWorkspace'),
+      cmdEntry('check-updates', 'checkForUpdates'),
+      cmdEntry('install-desktop', 'installDesktopEntry'),
+      cmdEntry('open-repo-github', 'repoGithub'),
+      cmdEntry('open-vscode-ext-github', 'vscodeExtGithub'),
+      cmdEntry('open-my-github', 'myGithub')
     ];
   }
 
@@ -2451,6 +2891,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
   if (hasBridge) await window.studio.setLanguage(getLang());
   $('statusLangBtn').textContent = getLang().toUpperCase();
+  if ($('btnTopLang')) $('btnTopLang').textContent = getLang().toUpperCase();
 
   menuBar.setTree(state.tree);
   renderRcmdrTree();
@@ -2577,6 +3018,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
     window.studio.onMenuCommand((cmd) => handleStudioCommand(cmd));
     window.studio.onMenuRcmdr((id) => triggerRcmdrCommand(id));
+    if (window.studio.onUpdaterAvailable) {
+      window.studio.onUpdaterAvailable((info) => checkAndPromptForUpdate(false, info));
+    }
   }
 
   // Global Shortcuts
@@ -2676,6 +3120,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
   // --- Wire UI Buttons ---
   $('topSearchTrigger').addEventListener('click', () => palette.open(''));
+  $('btnTopLang')?.addEventListener('click', () => handleStudioCommand('switch-language'));
   $('btnRun').addEventListener('click', () => handleStudioCommand('run-selection'));
   $('btnRunAll').addEventListener('click', () => handleStudioCommand('run-all'));
   $('btnInterrupt').addEventListener('click', () => handleStudioCommand('interrupt-r'));
@@ -2721,7 +3166,29 @@ boxplot(Sepal.Length ~ Species, data = iris,
   $('btnCloseSplit').addEventListener('click', closeSplitGroup);
   $('btnClosePreview').addEventListener('click', closePreview);
   $('btnPreviewModeLive').addEventListener('click', () => openPreview('live'));
+  $('btnPreviewModeFull')?.addEventListener('click', () => openPreview('full'));
   $('btnPreviewModeKnit').addEventListener('click', () => openPreview('knit'));
+  $('btnPreviewOutline')?.addEventListener('click', () => {
+    const bar = $('previewOutlineBar');
+    if (bar && bar.children.length) bar.hidden = !bar.hidden;
+  });
+  $('btnPreviewPopout')?.addEventListener('click', async () => {
+    const tab = activeTab();
+    if (!tab || !window.studio?.openOutputWindow) return;
+    await window.studio.openOutputWindow({
+      title: `${tab.name} — Markdown Viewer`,
+      sourceLabel: 'Markdown Viewer',
+      htmlContent: $('previewBody').innerHTML,
+      rawText: tab.model?.getValue() || '',
+      isLight: state.theme === 'light'
+    });
+  });
+  $('docPickerClose')?.addEventListener('click', () => {
+    $('docPickerBackdrop').hidden = true;
+  });
+  $('docPickerBackdrop')?.addEventListener('click', (e) => {
+    if (e.target === $('docPickerBackdrop')) $('docPickerBackdrop').hidden = true;
+  });
 
   // Workspace & Files buttons
   $('btnWsLoadRData').addEventListener('click', () => handleStudioCommand('load-workspace'));

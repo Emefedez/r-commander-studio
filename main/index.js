@@ -10,6 +10,8 @@ const { ArfTerminal } = require('./arf-terminal');
 const { RLanguageServer } = require('./r-lsp');
 const { RcmdrService, report } = require('./rcmdr-service');
 const { NoteCompleteBridge } = require('./bridge');
+const { createUpdater } = require('./updater');
+const { integrateLinuxDesktop } = require('./linux-integration');
 const fsService = require('./fs-service');
 const mainI18n = require('./i18n');
 
@@ -19,6 +21,7 @@ let arf = null;
 let lsp = null;
 let rcmdr = null;
 let bridge = null;
+let appUpdater = null;
 let lastSnapshot = { datasets: {}, models: [], hclusts: [], objects: [] };
 let rendererReady = false;
 const pendingOpenPaths = [];
@@ -186,7 +189,15 @@ function buildAppMenu(lang = mainI18n.getLang()) {
       submenu: [
         { label: t('rHelpMenu'), click: () => sendToRenderer('menu:command', 'r-help') },
         { type: 'separator' },
-        ...rcmdrSub('Help')
+        ...rcmdrSub('Help'),
+        { type: 'separator' },
+        { label: t('checkForUpdates'), click: () => sendToRenderer('menu:command', 'check-updates') },
+        { label: t('checkForUpdatesOnOpen'), click: () => sendToRenderer('menu:command', 'toggle-update-on-open') },
+        { label: t('installDesktopEntry'), click: () => sendToRenderer('menu:command', 'install-desktop') },
+        { type: 'separator' },
+        { label: `${t('repoGithub')} (Emefedez/r-commander-studio)`, click: () => shell.openExternal('https://github.com/Emefedez/r-commander-studio') },
+        { label: `${t('vscodeExtGithub')} (Emefedez/r-commander-in-vscode)`, click: () => shell.openExternal('https://github.com/Emefedez/r-commander-in-vscode') },
+        { label: `${t('myGithub')} (Emefedez)`, click: () => shell.openExternal('https://github.com/Emefedez') }
       ]
     }
   ];
@@ -490,16 +501,41 @@ function registerIpc() {
   ipcMain.handle('r:help', async (_e, topic) => {
     const clean = String(topic || '').trim();
     if (!clean) return { ok: false, text: '' };
+
+    // Always search bilingual (EN + ES + R function names) R Commander commands too
+    const rcmdrMatches = rcmdr ? rcmdr.searchCommands(clean, mainI18n.getLang()).slice(0, 12) : [];
+
     const [maybePkg, maybeFn] = clean.includes('::') ? clean.split('::') : ['', clean];
-    const structured = await runtime.getFunctionHelp(maybeFn || clean, maybePkg);
-    if (structured && structured.ok && structured.fullText) {
-      return structured;
+    // Only call getFunctionHelp directly if clean looks like a single R identifier
+    if (/^[A-Za-z.][A-Za-z0-9._]*$/.test(maybeFn || clean)) {
+      const structured = await runtime.getFunctionHelp(maybeFn || clean, maybePkg);
+      if (structured && structured.ok && structured.fullText) {
+        return { ...structured, rcmdrMatches };
+      }
     }
+
+    // If the user searched a function/concept in Spanish or English (e.g. "regresión lineal",
+    // "linear regression", "test t", "diagrama de caja") and it matched an R Commander command
+    // with an associated R function, load that R function's documentation automatically!
+    const matchedFn = rcmdrMatches.find((m) => Array.isArray(m.fns) && m.fns.length > 0)?.fns?.[0];
+    if (matchedFn) {
+      const structured = await runtime.getFunctionHelp(matchedFn, '');
+      if (structured && structured.ok && structured.fullText) {
+        return { ...structured, rcmdrMatches, resolvedFromQuery: clean };
+      }
+    }
+
     const res = await runtime.runCode(
-      `local({ hs <- utils::help.search(${JSON.stringify(clean)})$matches; if (nrow(hs)) print(head(hs[, c("Package", "Topic", "Title")], 20)) else cat("No R help entries found for:", ${JSON.stringify(clean)}, "\\n") })`,
+      `local({ hs <- tryCatch(utils::help.search(${JSON.stringify(clean)}, agrep = FALSE)$matches, error = function(e) NULL); if (!is.null(hs) && nrow(hs)) print(head(hs[, c("Package", "Topic", "Title")], 20)) else cat("No R help entries found for:", ${JSON.stringify(clean)}, "\\n") })`,
       { capturePlots: false, skipHelp: false, limitOutput: false }
     );
-    return { ok: true, fn: clean, title: `Search: ${clean}`, fullText: res.stdout || res.stderr || '' };
+    return {
+      ok: true,
+      fn: clean,
+      title: `Search: ${clean}`,
+      fullText: res.stdout || res.stderr || '',
+      rcmdrMatches
+    };
   });
 
   ipcMain.handle('r:fnHelp', async (_e, { fnName, pkg }) => runtime.getFunctionHelp(fnName, pkg));
@@ -598,6 +634,125 @@ function registerIpc() {
     if (action === 'removeLastTitle') return report.removeLastTitle(kind, text);
     return text;
   });
+
+  // --- Auto-Updater, Desktop Integration & Standalone Output/Viewer Window ---
+  ipcMain.handle('updater:check', async (_e, { manual = true } = {}) => {
+    if (!appUpdater) return { current: app.getVersion(), upToDate: true };
+    return appUpdater.check({ manual });
+  });
+  ipcMain.handle('updater:install', async () => {
+    if (!appUpdater) throw new Error('Updater not initialized');
+    return appUpdater.install((pct) => sendToRenderer('updater:progress', pct));
+  });
+  ipcMain.handle('updater:restart', async () => {
+    if (appUpdater) appUpdater.restart();
+    return true;
+  });
+  ipcMain.handle('updater:settings', async () => {
+    if (!appUpdater) return { checkOnOpen: true, current: app.getVersion() };
+    return appUpdater.settings();
+  });
+  ipcMain.handle('updater:setCheckOnOpen', async (_e, on) => {
+    if (!appUpdater) return false;
+    await appUpdater.setCheckOnOpen(on);
+    return true;
+  });
+  ipcMain.handle('studio:installDesktop', async () => {
+    return integrateLinuxDesktop({ createDesktopShortcut: true });
+  });
+
+  ipcMain.handle('studio:openOutputWindow', async (_e, { title, htmlContent, rawText, code, sourceLabel, isLight } = {}) => {
+    const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
+    const win = new BrowserWindow({
+      width: 860,
+      height: 640,
+      minWidth: 480,
+      minHeight: 340,
+      title: title || 'R Output Viewer — R Commander Studio',
+      icon: fs.existsSync(iconPath) ? iconPath : undefined,
+      backgroundColor: isLight ? '#FFFFFF' : '#282A36',
+      autoHideMenuBar: true,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    });
+    const bg = isLight ? '#FFFFFF' : '#282A36';
+    const bgBar = isLight ? '#F3F3F3' : '#191A21';
+    const fg = isLight ? '#1E1E1E' : '#F8F8F2';
+    const fgMuted = isLight ? '#6E7681' : '#6272A4';
+    const border = isLight ? '#D4D4D4' : '#343746';
+    const accent = isLight ? '#007ACC' : '#BD93F9';
+    const safeRaw = JSON.stringify(String(rawText || ''));
+    const safeTitle = String(title || 'R Output').replace(/[&<>"]/g, '');
+    const safeSource = String(sourceLabel || 'R').replace(/[&<>"]/g, '');
+    const pageHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${safeTitle}</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: ${bg}; color: ${fg}; font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+  header { height: 36px; padding: 0 12px; background: ${bgBar}; border-bottom: 1px solid ${border}; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .badge { font: 600 11px ui-monospace, monospace; padding: 2px 6px; border-radius: 3px; background: ${accent}22; color: ${accent}; border: 1px solid ${accent}55; }
+  .title { font-weight: 600; font-size: 12.5px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button { height: 24px; padding: 0 10px; border: 1px solid ${border}; border-radius: 3px; background: ${bg}; color: ${fg}; font-size: 11.5px; cursor: pointer; }
+  button:hover { border-color: ${accent}; }
+  main { flex: 1; overflow: auto; padding: 16px 20px; }
+  pre, .out-body { margin: 0; font: 12.5px/1.5 ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+  .ansi-31, .ansi-91 { color: #FF5555; }
+  .ansi-32, .ansi-92 { color: #50FA7B; }
+  .ansi-33, .ansi-93 { color: #F1FA8C; }
+  .ansi-34, .ansi-94 { color: #BD93F9; }
+  .ansi-35, .ansi-95 { color: #FF79C6; }
+  .ansi-36, .ansi-96 { color: #8BE9FD; }
+  .ansi-90 { color: ${fgMuted}; font-style: italic; }
+  .ansi-1 { font-weight: 700; }
+  .tk-kw { color: #FF79C6; font-weight: 600; }
+  .tk-fn { color: #50FA7B; }
+  .tk-str { color: #F1FA8C; }
+  .tk-num { color: #BD93F9; }
+  .tk-com { color: ${fgMuted}; font-style: italic; }
+  .tk-op { color: #FF79C6; }
+  .tk-type { color: #FFB86C; font-style: italic; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12.5px; }
+  th, td { border: 1px solid ${border}; padding: 5px 9px; }
+  th { background: ${bgBar}; }
+  blockquote, .md-alert { border-left: 3px solid ${accent}; padding: 8px 12px; margin: 10px 0; background: ${bgBar}; }
+  .md-chunk { border: 1px solid ${border}; border-radius: 3px; margin: 10px 0; background: ${bgBar}; }
+  .md-chunk-bar { padding: 4px 10px; border-bottom: 1px solid ${border}; font-family: monospace; font-size: 11px; color: ${fgMuted}; display: flex; justify-content: space-between; }
+  .md-chunk pre { padding: 10px; }
+  .md-chunk-actions { display: none; }
+</style>
+</head>
+<body>
+  <header>
+    <span class="badge">${safeSource}</span>
+    <span class="title">${safeTitle}</span>
+    <button id="btnCopy">Copy</button>
+    <button id="btnPrint">Print / PDF</button>
+  </header>
+  <main>
+    <div class="out-body">${htmlContent || ''}</div>
+  </main>
+  <script>
+    const raw = ${safeRaw};
+    document.getElementById('btnCopy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(raw || document.querySelector('.out-body').innerText);
+        document.getElementById('btnCopy').textContent = 'Copied!';
+        setTimeout(() => { document.getElementById('btnCopy').textContent = 'Copy'; }, 1400);
+      } catch {}
+    });
+    document.getElementById('btnPrint').addEventListener('click', () => window.print());
+  </script>
+</body>
+</html>`;
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(pageHtml)}`);
+    return { ok: true };
+  });
 }
 
 async function bootServices() {
@@ -632,8 +787,20 @@ async function bootServices() {
   });
 
   await bridge.start();
+  appUpdater = createUpdater({ app });
+  integrateLinuxDesktop().catch(() => {});
   runtime.ensureSession().catch(() => {});
   lsp.start().catch(() => {});
+  setTimeout(() => {
+    appUpdater
+      .check({ manual: false })
+      .then((info) => {
+        if (info && info.version && !info.skipped) {
+          sendToRenderer('updater:available', info);
+        }
+      })
+      .catch(() => {});
+  }, 3500);
 }
 
 let shuttingDown = false;

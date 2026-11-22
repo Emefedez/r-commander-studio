@@ -57,11 +57,24 @@ test('All 371 R Commander commands are reachable via tree & bilingual search, an
   const unreachable = commandIds.filter((id) => !treeIds.has(id));
   assert.deepEqual(unreachable, [], `Unreachable commands from tree.json: ${unreachable.join(', ')}`);
 
-  // Bilingual accent-insensitive search
+  // Bilingual accent-insensitive search & cross-language + R function search
   const esRes = svc.searchCommands('diagrama de caja', 'es');
   assert.ok(esRes.length > 0, 'expected Spanish search hit for diagrama de caja');
   const enRes = svc.searchCommands('histogram', 'en');
   assert.ok(enRes.length > 0, 'expected English search hit for histogram');
+
+  // Cross-language search: search Spanish query while active language is English, and English query while active language is Spanish
+  const esQueryInEn = svc.searchCommands('regresion lineal', 'en');
+  assert.ok(esQueryInEn.length > 0, 'expected Spanish query "regresion lineal" to work when lang=en');
+  const enQueryInEs = svc.searchCommands('linear regression', 'es');
+  assert.ok(enQueryInEs.length > 0, 'expected English query "linear regression" to work when lang=es');
+  assert.equal(esQueryInEn[0].id, enQueryInEs[0].id);
+
+  // R function name search: search "t.test" or "shapiro.test" regardless of active language
+  const fnSearchEs = svc.searchCommands('shapiro.test', 'es');
+  const fnSearchEn = svc.searchCommands('shapiro.test', 'en');
+  assert.ok(fnSearchEs.length > 0 && fnSearchEn.length > 0, 'expected R function search "shapiro.test" to find normality test');
+  assert.equal(fnSearchEs[0].id, fnSearchEn[0].id);
 
   // MenuHover parity (lm, t.test, Hist)
   const lmEn = svc.getMenuHover('lm', 'en');
@@ -186,4 +199,39 @@ test('StudioThemes exposes 8 built-in dark & light presets with valid hex tokens
   assert.equal(custom.tokens.bgEditor, '#111218');
   assert.equal(custom.tokens.accent, '#00FFAA');
   assert.equal(custom.tokens.bgSidebar, '#21222C');
+});
+
+test('Auto-updater parses versions, picks platform assets, and verifies SHA256SUMS', () => {
+  const updater = require('../main/updater');
+  assert.equal(updater.newer('v0.2.0', '0.1.0'), true);
+  assert.equal(updater.newer('0.1.0', '0.1.0'), false);
+  assert.equal(updater.newer('0.1.1', '0.1.0-beta.1'), true);
+
+  const rel = updater.latestRelease([
+    { tag_name: 'v0.1.0', draft: false, assets: [] },
+    { tag_name: 'v0.2.0', draft: false, assets: [
+      { name: 'R Commander Studio-0.2.0-linux-arm64.AppImage' },
+      { name: 'R Commander Studio-0.2.0-linux-x86_64.AppImage' },
+      { name: 'R Commander Studio-0.2.0-win-x64-setup.exe' },
+      { name: 'R Commander Studio-0.2.0-mac-arm64.dmg' }
+    ] }
+  ]);
+  assert.equal(rel.tag_name, 'v0.2.0');
+  assert.equal(updater.pickAsset(rel, 'linux', 'arm64').name, 'R Commander Studio-0.2.0-linux-arm64.AppImage');
+  assert.equal(updater.pickAsset(rel, 'linux', 'x64').name, 'R Commander Studio-0.2.0-linux-x86_64.AppImage');
+  assert.equal(updater.pickAsset(rel, 'win32', 'x64').name, 'R Commander Studio-0.2.0-win-x64-setup.exe');
+  assert.equal(updater.pickAsset(rel, 'darwin', 'arm64').name, 'R Commander Studio-0.2.0-mac-arm64.dmg');
+
+  const sums = updater.parseSums(`${'a'.repeat(64)}  R Commander Studio-0.2.0-linux-arm64.AppImage\n`);
+  assert.equal(sums.get('R Commander Studio-0.2.0-linux-arm64.AppImage'), 'a'.repeat(64));
+});
+
+test('Linux desktop integration builds valid .desktop entry and MIME XML', () => {
+  const linuxInt = require('../main/linux-integration');
+  const entry = linuxInt.buildDesktopEntry({ execPath: '/home/user/.local/bin/r-commander-studio' });
+  assert.match(entry, /Name=R Commander Studio/);
+  assert.match(entry, /MimeType=text\/x-r-source;text\/x-rmarkdown;/);
+  const xml = linuxInt.buildMimeXml();
+  assert.match(xml, /glob pattern="\*\.Rmd"/);
+  assert.match(xml, /glob pattern="\*\.RData"/);
 });

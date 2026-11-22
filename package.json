@@ -1,19 +1,27 @@
 {
   "name": "r-commander-studio",
   "version": "0.1.0",
-  "description": "Standalone VS Code-style R + R Markdown IDE with Monaco Editor, 371 R Commander dialogs, R LSP + hover docs, arf & R terminals, interactive Data Viewer, and NoteComplete Bridge",
+  "description": "Standalone VS Code-style R + R Markdown IDE with Monaco Editor, 371 R Commander dialogs, R LSP + hover docs, arf & R terminals, interactive Data Viewer, Markdown Viewer, and NoteComplete Bridge",
+  "author": "Emefedez <https://github.com/Emefedez>",
+  "homepage": "https://github.com/Emefedez/r-commander-studio",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Emefedez/r-commander-studio.git"
+  },
   "main": "main/index.js",
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/*.test.js",
     "sync-rcmdr": "node tools/sync-rcmdr.mjs",
     "screenshots": "node tools/capture-screenshots.mjs",
-    "dist": "electron-builder",
-    "dist:linux": "electron-builder --linux --x64 --arm64",
-    "dist:linux:x64": "electron-builder --linux --x64",
-    "dist:linux:arm64": "electron-builder --linux --arm64",
-    "dist:mac": "electron-builder --mac --arm64",
-    "dist:win": "electron-builder --win --x64"
+    "install-desktop": "node -e \"require('./main/linux-integration').integrateLinuxDesktop({ createDesktopShortcut: true }).then(r => console.log('Installed:', r))\"",
+    "dist": "electron-builder --publish never",
+    "dist:dir": "electron-builder --dir --publish never",
+    "dist:linux": "electron-builder --linux --x64 --arm64 --publish never",
+    "dist:linux:x64": "electron-builder --linux --x64 --publish never",
+    "dist:linux:arm64": "electron-builder --linux --arm64 --publish never",
+    "dist:mac": "electron-builder --mac --arm64 --publish never",
+    "dist:win": "electron-builder --win --x64 --publish never"
   },
   "keywords": [
     "r",
@@ -58,43 +66,34 @@
     "linux": {
       "icon": "assets/icon.png",
       "target": [
-        {
-          "target": "AppImage",
-          "arch": ["x64", "arm64"]
-        }
+        "AppImage",
+        "tar.gz"
       ],
       "category": "Development;Science;Education"
     },
     "mac": {
       "icon": "assets/icon.png",
       "target": [
-        {
-          "target": "dmg",
-          "arch": ["arm64"]
-        },
-        {
-          "target": "zip",
-          "arch": ["arm64"]
-        }
+        "dmg",
+        "zip"
       ],
       "category": "public.app-category.developer-tools"
     },
     "win": {
       "icon": "assets/icon.png",
       "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        },
-        {
-          "target": "portable",
-          "arch": ["x64"]
-        }
+        "nsis",
+        "portable",
+        "zip"
       ]
     },
     "nsis": {
+      "artifactName": "${productName}-${version}-${os}-${arch}-setup.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${os}-${arch}-portable.${ext}"
     }
   }
 }

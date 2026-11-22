@@ -143,7 +143,15 @@
           items: [
             { label: t('rHelpMenu'), accel: 'F1', cmd: 'r-help' },
             { sep: true },
-            ...rcmdrSub('Help')
+            ...rcmdrSub('Help'),
+            { sep: true },
+            { label: t('checkForUpdates'), cmd: 'check-updates' },
+            { label: t('checkForUpdatesOnOpen'), cmd: 'toggle-update-on-open' },
+            { label: t('installDesktopEntry'), cmd: 'install-desktop' },
+            { sep: true },
+            { label: t('repoGithub'), sub: 'Emefedez/r-commander-studio', cmd: 'open-repo-github' },
+            { label: t('vscodeExtGithub'), sub: 'Emefedez/r-commander-in-vscode', cmd: 'open-vscode-ext-github' },
+            { label: t('myGithub'), sub: t('myGithubSub'), cmd: 'open-my-github' }
           ]
         }
       ];
@@ -177,8 +185,12 @@
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'menubar-entry';
-          btn.innerHTML = `<span class="menubar-entry-label"></span>${item.accel ? `<span class="menubar-accel">${item.accel}</span>` : ''}`;
+          btn.innerHTML =
+            `<span class="menubar-entry-label"></span>` +
+            (item.sub ? `<small class="menubar-sub-tiny"></small>` : '') +
+            (item.accel ? `<span class="menubar-accel">${item.accel}</span>` : '');
           btn.querySelector('.menubar-entry-label').textContent = item.label;
+          if (item.sub) btn.querySelector('.menubar-sub-tiny').textContent = item.sub;
           btn.addEventListener('click', (e) => {
             e.stopPropagation();
             this.closeAll();

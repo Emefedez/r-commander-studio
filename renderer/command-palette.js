@@ -82,13 +82,17 @@
         }));
 
       const rcmdrMatches = await window.studio.rcmdrSearchCommands({ query: q, lang: getLang() });
-      const rcmdrCmds = (rcmdrMatches || []).slice(0, 60).map((c) => ({
-        kind: 'rcmdr',
-        id: c.id,
-        label: c.label,
-        detail: c.path || t('paletteCategoryRcmdr'),
-        accel: ''
-      }));
+      const rcmdrCmds = (rcmdrMatches || []).slice(0, 60).map((c) => {
+        const fnHint = Array.isArray(c.fns) && c.fns.length ? ` [${c.fns.slice(0, 2).join(', ')}]` : '';
+        const altHint = q && c.altLabel ? ` (${c.altLabel})` : '';
+        return {
+          kind: 'rcmdr',
+          id: c.id,
+          label: `${c.label}${altHint}`,
+          detail: `${c.path || t('paletteCategoryRcmdr')}${fnHint}`,
+          accel: ''
+        };
+      });
 
       this.items = [...studioCmds, ...rcmdrCmds].slice(0, 80);
       this.activeIdx = 0;

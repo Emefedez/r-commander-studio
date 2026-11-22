@@ -342,7 +342,41 @@
     hoverMore: 'and {0} more',
     openDocsBtn: 'Open R Docs for symbol under cursor (F1)',
     helpSearchPlaceholder: 'Search R documentation (e.g. lm, t.test, dnorm)...',
-    helpEmpty: 'Hover a function and click "Open R Documentation", press F1, or search above.'
+    helpEmpty: 'Hover a function and click "Open R Documentation", press F1, or search above.',
+
+    // Updates, GitHub & System Integration (Help Menu)
+    checkForUpdates: 'Check for Updates...',
+    checkForUpdatesOnOpen: 'Check for Updates on Open',
+    installDesktopEntry: 'Install Desktop Shortcut & File Associations',
+    myGithub: 'My Github',
+    myGithubSub: 'Emefedez',
+    repoGithub: 'R Commander Studio on GitHub',
+    vscodeExtGithub: 'r-commander-in-vscode Extension',
+    updateChecking: 'Checking GitHub Releases for updates...',
+    updateUpToDate: 'R Commander Studio v{0} is up to date.',
+    updateAvailablePrompt: 'R Commander Studio v{0} is available (current: v{1}). Download and install now?',
+    updateInstalling: 'Downloading and verifying v{0}...',
+    updateInstalledRestart: 'Updated to v{0}. Restart R Commander Studio now?',
+    desktopInstalledToast: 'Installed desktop shortcut and R file associations.',
+
+    // Markdown Viewer & Output Hover (...) Actions
+    previewSplitBtn: 'Split Editor & Markdown Viewer',
+    previewFullBtn: 'Full Markdown Viewer',
+    previewOutlineBtn: 'Document Outline / Headings',
+    previewPopoutBtn: 'Open Viewer in New Window',
+    outMoreActions: 'Output Actions...',
+    outCopyText: 'Copy Output',
+    outCopyMarkdown: 'Copy Command + Output (Markdown)',
+    outOpenNewWindow: 'Open Output in New Window',
+    outPasteIntoDoc: 'Paste into Document',
+    outPasteNewDoc: 'New Document',
+    outPasteWorkspaceDoc: 'Document in This Workspace...',
+    outPasteCurrentDoc: 'Currently Open Document',
+    outCopiedToast: 'Output copied to clipboard.',
+    outPastedToast: 'Output inserted into {0}.',
+    outNoWorkspaceDocs: 'No documents found in current workspace folder. Opening file picker...',
+    outPickWorkspaceDocTitle: 'Choose a Document in This Workspace',
+    outPickOpenDocTitle: 'Choose an Open Document'
   };
 
   const ES = {
@@ -680,7 +714,41 @@
     hoverMore: 'y {0} más',
     openDocsBtn: 'Abrir documentación de R del símbolo bajo el cursor (F1)',
     helpSearchPlaceholder: 'Buscar documentación de R (p. ej. lm, t.test, dnorm)...',
-    helpEmpty: 'Pasa el ratón por una función y pulsa "Abrir documentación de R", pulsa F1 o busca arriba.'
+    helpEmpty: 'Pasa el ratón por una función y pulsa "Abrir documentación de R", pulsa F1 o busca arriba.',
+
+    // Updates, GitHub & System Integration (Help Menu)
+    checkForUpdates: 'Buscar actualizaciones...',
+    checkForUpdatesOnOpen: 'Buscar actualizaciones al abrir',
+    installDesktopEntry: 'Instalar en el sistema y crear acceso directo',
+    myGithub: 'Mi Github',
+    myGithubSub: 'Emefedez',
+    repoGithub: 'R Commander Studio en GitHub',
+    vscodeExtGithub: 'Extensión r-commander-in-vscode',
+    updateChecking: 'Buscando actualizaciones en GitHub Releases...',
+    updateUpToDate: 'R Commander Studio v{0} está actualizado.',
+    updateAvailablePrompt: 'R Commander Studio v{0} está disponible (actual: v{1}). ¿Descargar e instalar ahora?',
+    updateInstalling: 'Descargando y verificando v{0}...',
+    updateInstalledRestart: 'Actualizado a v{0}. ¿Reiniciar R Commander Studio ahora?',
+    desktopInstalledToast: 'Acceso directo y asociaciones de archivos R instalados en el sistema.',
+
+    // Markdown Viewer & Output Hover (...) Actions
+    previewSplitBtn: 'Dividir editor y visor Markdown',
+    previewFullBtn: 'Visor Markdown a pantalla completa',
+    previewOutlineBtn: 'Esquema del documento',
+    previewPopoutBtn: 'Abrir visor en ventana nueva',
+    outMoreActions: 'Acciones de salida...',
+    outCopyText: 'Copiar salida',
+    outCopyMarkdown: 'Copiar comando + salida (Markdown)',
+    outOpenNewWindow: 'Abrir salida en ventana nueva',
+    outPasteIntoDoc: 'Pegar en documento',
+    outPasteNewDoc: 'Documento nuevo',
+    outPasteWorkspaceDoc: 'Documento de esta carpeta de trabajo...',
+    outPasteCurrentDoc: 'Documento abierto actualmente',
+    outCopiedToast: 'Salida copiada al portapapeles.',
+    outPastedToast: 'Salida insertada en {0}.',
+    outNoWorkspaceDocs: 'No hay documentos en la carpeta de trabajo actual. Abriendo selector...',
+    outPickWorkspaceDocTitle: 'Elige un documento de la carpeta de trabajo',
+    outPickOpenDocTitle: 'Elige un documento abierto'
   };
 
   return { en: EN, es: ES };

@@ -68,6 +68,7 @@
     'zoom-reset': `<rect x="2.5" y="2.5" width="11" height="11" ${S}/><path d="M5.5 8h5" ${S}/>`,
     error: `<circle cx="8" cy="8" r="6" ${S}/><path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8" ${S}/>`,
     warning: `<path d="M8 2.2L14 13H2z" ${S}/><path d="M8 6.2v3.3" ${S}/><circle cx="8" cy="11.3" r="0.6" fill="currentColor"/>`,
+    info: `<circle cx="8" cy="8" r="6" ${S}/><path d="M8 7.2v4.2" ${S}/><circle cx="8" cy="4.8" r="0.7" fill="currentColor"/>`,
     check: `<polyline points="3,8.2 6.5,11.8 13.2,4.5" ${S}/>`,
     sigma: `<path d="M12 3H4.2l4.6 5-4.6 5H12" ${S}/>`,
     'add-row': `<rect x="2" y="2.5" width="12" height="7" ${S}/><path d="M2 6h12M8 11v3.5M6.2 12.8h3.6" ${S}/>`,
@@ -76,7 +77,13 @@
     'prompt-arrow': `<polyline points="5,3.5 11,8 5,12.5" ${S}/>`,
     sun: `<circle cx="8" cy="8" r="3" ${S}/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3" ${S}/>`,
     moon: `<path d="M12.5 9.8A5.2 5.2 0 0 1 6.2 3.5a5.5 5.5 0 1 0 6.3 6.3z" ${S}/>`,
-    markdown: `<rect x="1.8" y="3.5" width="12.4" height="9" ${S}/><path d="M4 10.2V5.8l2 2.2 2-2.2v4.4M11 5.8v4.2m-1.5-1.6l1.5 1.7 1.5-1.7" ${S}/>`
+    markdown: `<rect x="1.8" y="3.5" width="12.4" height="9" ${S}/><path d="M4 10.2V5.8l2 2.2 2-2.2v4.4M11 5.8v4.2m-1.5-1.6l1.5 1.7 1.5-1.7" ${S}/>`,
+    more: `<circle cx="3.5" cy="8" r="1.25" fill="currentColor"/><circle cx="8" cy="8" r="1.25" fill="currentColor"/><circle cx="12.5" cy="8" r="1.25" fill="currentColor"/>`,
+    'new-window': `<path d="M9.5 2.5h4v4M13.5 2.5L7.8 8.2" ${S}/><path d="M7 3.5H3a1 1 0 0 0-1 1V13a1 1 0 0 0 1 1h8.5a1 1 0 0 0 1-1V9" ${S}/>`,
+    link: `<path d="M6.8 9.2a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2L7.7 4.1" ${S}/><path d="M9.2 6.8a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l1.1-1.1" ${S}/>`,
+    toc: `<circle cx="3" cy="4.2" r="0.9" fill="currentColor"/><circle cx="3" cy="8" r="0.9" fill="currentColor"/><circle cx="3" cy="11.8" r="0.9" fill="currentColor"/><path d="M5.5 4.2h8M5.5 8h8M5.5 11.8h8" ${S}/>`,
+    'paste-doc': `<path d="M5 2.5h6l2.5 2.5v8.5H5z" ${S}/><path d="M2.5 8h6M6.5 6l2 2-2 2" ${S}/>`,
+    maximize: `<rect x="2.5" y="2.5" width="11" height="11" ${S}/><polyline points="6,2.5 2.5,2.5 2.5,6" ${S}/><polyline points="10,13.5 13.5,13.5 13.5,10" ${S}/>`
   };
 
   function svg(name, { size = 16, cls = '', color = '' } = {}) {
@@ -85,7 +92,6 @@
     return `<svg class="codicon${cls ? ' ' + cls : ''}" width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true"${style}>${inner}</svg>`;
   }
 
-  // Exact VS Code Dracula chart/ANSI color mapping for data/tree.json
   function rcmdrColor(token = '') {
     switch (token) {
       case 'charts.green':

@@ -22,6 +22,7 @@
     </div>
 
     <div class="titlebar-right">
+      <button type="button" id="btnTopLang" class="top-lang-btn" data-i18n-title="switchLanguage">ES</button>
       <button type="button" id="btnRun" class="top-icon-btn run-accent" data-icon="play" data-size="14" data-i18n-title="runSelection"></button>
       <button type="button" id="btnRunAll" class="top-icon-btn" data-icon="play-all" data-size="14" data-i18n-title="runAll"></button>
       <button type="button" id="btnInterrupt" class="top-icon-btn" data-icon="stop" data-size="13" data-i18n-title="interruptR"></button>
@@ -154,10 +155,14 @@
           <div class="preview-head">
             <span id="previewTitle" class="preview-title">Preview</span>
             <span class="spacer"></span>
-            <button type="button" id="btnPreviewModeLive" class="icon-btn active" data-icon="eye" data-size="14" data-i18n-title="previewLiveBtn"></button>
+            <button type="button" id="btnPreviewOutline" class="icon-btn" data-icon="toc" data-size="14" data-i18n-title="previewOutlineBtn"></button>
+            <button type="button" id="btnPreviewModeLive" class="icon-btn active" data-icon="split" data-size="14" data-i18n-title="previewSplitBtn"></button>
+            <button type="button" id="btnPreviewModeFull" class="icon-btn" data-icon="eye" data-size="14" data-i18n-title="previewFullBtn"></button>
             <button type="button" id="btnPreviewModeKnit" class="icon-btn" data-icon="hammer" data-size="14" data-i18n-title="previewKnitBtn"></button>
+            <button type="button" id="btnPreviewPopout" class="icon-btn" data-icon="new-window" data-size="14" data-i18n-title="previewPopoutBtn"></button>
             <button type="button" id="btnClosePreview" class="icon-btn" data-icon="close" data-size="14" data-i18n-title="dlgClose"></button>
           </div>
+          <div id="previewOutlineBar" class="preview-outline-bar" hidden></div>
           <div id="previewBody" class="preview-body"></div>
           <iframe id="previewIframe" class="preview-iframe" sandbox="allow-scripts" hidden></iframe>
         </section>
@@ -377,6 +382,21 @@
         <button type="button" id="settingsCancel" class="dlg-btn">Cancel</button>
         <button type="button" id="settingsSave" class="dlg-btn primary">Save</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Floating (...) Output Actions Menu & Document Picker Modal -->
+  <div id="outputActionMenu" class="output-action-menu" hidden></div>
+
+  <div id="docPickerBackdrop" class="modal-backdrop palette-backdrop" hidden>
+    <div class="palette-modal" role="dialog" aria-modal="true">
+      <div class="rcmdr-modal-head">
+        <div>
+          <h2 id="docPickerTitle" class="rcmdr-modal-title">Choose Document</h2>
+        </div>
+        <button type="button" id="docPickerClose" class="icon-btn" data-icon="close" data-size="14"></button>
+      </div>
+      <div id="docPickerList" class="palette-list"></div>
     </div>
   </div>
 

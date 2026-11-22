@@ -293,6 +293,31 @@ header.titlebar {
   gap: 2px;
 }
 
+.top-lang-btn {
+  height: 22px;
+  min-width: 28px;
+  padding: 0 6px;
+  margin-right: 3px;
+  border: 1px solid var(--border-field);
+  border-radius: 3px;
+  background: var(--bg-sidebar);
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.top-lang-btn:hover {
+  background: var(--bg-editor);
+  border-color: var(--focus-border);
+  color: var(--fg);
+}
+
 /* Cascading VS Code Menu Bar */
 .menubar {
   display: flex;
@@ -365,6 +390,13 @@ header.titlebar {
 .menubar-entry-label {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menubar-sub-tiny {
+  margin-left: 10px;
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
   white-space: nowrap;
 }
 .menubar-accel {
@@ -877,6 +909,11 @@ header.titlebar {
   display: flex;
   align-items: stretch;
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tab-bar::-webkit-scrollbar {
+  display: none;
 }
 
 .tab-actions {
@@ -888,7 +925,7 @@ header.titlebar {
 }
 
 .tab-item {
-  height: 35px;
+  height: 100%;
   padding: 0 8px 0 10px;
   background: var(--bg-sidebar);
   color: var(--fg-muted);
@@ -1142,16 +1179,20 @@ header.titlebar {
 .tv-page-info { padding: 0 4px; color: var(--fg-soft); font-variant-numeric: tabular-nums; }
 
 /* ============================================================================
-   5. MARKDOWN / RMD PREVIEW
+   5. MARKDOWN / RMD VIEWER (NoteComplete-grade Rich Markdown + Code + Math)
    ============================================================================ */
 .preview-pane {
-  width: 42%;
-  min-width: 240px;
+  width: 46%;
+  min-width: 260px;
   border-left: 1px solid var(--border);
   background: var(--bg-editor);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+.preview-pane.full-viewer {
+  width: 100%;
+  border-left: 0;
 }
 .preview-head {
   height: 35px;
@@ -1162,19 +1203,115 @@ header.titlebar {
   align-items: center;
   gap: 4px;
 }
-.preview-title { font-size: 12px; font-weight: 600; color: var(--fg-soft); }
-.preview-body { flex: 1; overflow-y: auto; padding: 14px 18px 40px; line-height: 1.6; }
+.preview-title { font-size: 12px; font-weight: 600; color: var(--fg-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-outline-bar {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 6px 10px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.preview-toc-item {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-field);
+  border-radius: 2px;
+  background: var(--bg-editor);
+  color: var(--fg-soft);
+  font-size: 11.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.preview-toc-item:hover { border-color: var(--accent-purple); color: var(--fg); }
+.preview-body { flex: 1; overflow-y: auto; padding: 16px 22px 44px; line-height: 1.65; font-size: 13.5px; }
 .preview-iframe { flex: 1; width: 100%; border: 0; background: #ffffff; }
-.md-frontmatter { background: var(--bg-sidebar); border: 1px solid var(--border-field); border-radius: 2px; padding: 10px 12px; margin-bottom: 14px; }
-.md-frontmatter h1 { margin: 0 0 4px; font-size: 18px; }
-.md-frontmatter .md-meta { font-size: 11.5px; color: var(--fg-muted); display: flex; gap: 12px; }
-.md-chunk { border: 1px solid var(--border-field); border-radius: 2px; margin: 10px 0; background: var(--bg-sidebar); }
-.md-chunk-bar { height: 24px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); }
-.md-chunk pre, .preview-body > pre { margin: 0; padding: 8px 10px; overflow-x: auto; font-family: var(--font-mono); font-size: 12px; }
-.preview-body code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-sidebar); padding: 1px 4px; border-radius: 2px; }
-.preview-body table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12px; }
-.preview-body th, .preview-body td { border: 1px solid var(--border-field); padding: 4px 8px; }
-.preview-body th { background: var(--bg-sidebar); }
+.md-frontmatter { background: var(--bg-sidebar); border: 1px solid var(--border-field); border-radius: 3px; padding: 12px 14px; margin-bottom: 16px; }
+.md-frontmatter h1 { margin: 0 0 4px; font-size: 19px; color: var(--fg); }
+.md-frontmatter .md-subtitle { font-size: 13px; color: var(--fg-soft); margin-bottom: 6px; }
+.md-frontmatter .md-meta { font-size: 11.5px; color: var(--fg-muted); display: flex; flex-wrap: wrap; gap: 14px; }
+.md-heading { position: relative; scroll-margin-top: 14px; }
+.md-heading .md-anchor {
+  opacity: 0;
+  margin-right: 6px;
+  color: var(--accent-purple);
+  text-decoration: none;
+  font-weight: 400;
+}
+.md-heading:hover .md-anchor { opacity: 0.85; }
+.preview-body a { color: var(--accent-cyan); text-decoration: none; }
+.preview-body a:hover { text-decoration: underline; }
+.preview-body img.md-img { max-width: 100%; height: auto; border-radius: 3px; border: 1px solid var(--border-field); margin: 6px 0; }
+.preview-body blockquote {
+  margin: 10px 0;
+  padding: 6px 14px;
+  border-left: 3px solid var(--accent-purple);
+  background: var(--bg-sidebar);
+  color: var(--fg-soft);
+}
+.preview-body blockquote p { margin: 4px 0; }
+
+/* GFM Callouts / Alerts */
+.md-alert {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent-cyan);
+  background: var(--bg-sidebar);
+  border-radius: 2px;
+}
+.md-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+  color: var(--accent-cyan);
+}
+.md-alert-tip { border-left-color: var(--accent-green); }
+.md-alert-tip .md-alert-title { color: var(--accent-green); }
+.md-alert-important { border-left-color: var(--accent-purple); }
+.md-alert-important .md-alert-title { color: var(--accent-purple); }
+.md-alert-warning { border-left-color: var(--accent-orange); }
+.md-alert-warning .md-alert-title { color: var(--accent-orange); }
+.md-alert-caution { border-left-color: var(--accent-red); }
+.md-alert-caution .md-alert-title { color: var(--accent-red); }
+
+.md-task-item { list-style: none; margin-left: -18px; display: flex; align-items: center; gap: 7px; }
+.md-chunk { border: 1px solid var(--border-field); border-radius: 3px; margin: 12px 0; background: var(--bg-sidebar); overflow: hidden; }
+.md-chunk-bar { height: 26px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); background: var(--bg-chrome); }
+.md-chunk-label { display: inline-flex; align-items: center; gap: 6px; }
+.md-chunk-actions { display: inline-flex; align-items: center; gap: 2px; }
+.md-chunk pre, .preview-body > pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; }
+.preview-body code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-sidebar); padding: 1px 5px; border-radius: 2px; }
+.md-chunk pre code { background: transparent; padding: 0; }
+.md-table-wrap { overflow-x: auto; margin: 10px 0; }
+.preview-body table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.preview-body th, .preview-body td { border: 1px solid var(--border-field); padding: 5px 10px; }
+.preview-body th { background: var(--bg-sidebar); font-weight: 600; }
+.preview-body tbody tr:nth-child(even) { background: rgba(128, 128, 128, 0.04); }
+
+/* NoteComplete Code Highlight Token Classes */
+.code-highlighted .tk-kw { color: var(--accent-pink); font-weight: 600; }
+.code-highlighted .tk-fn { color: var(--accent-green); }
+.code-highlighted .tk-str { color: var(--accent-yellow); }
+.code-highlighted .tk-num { color: var(--accent-purple); }
+.code-highlighted .tk-com { color: var(--fg-muted); font-style: italic; }
+.code-highlighted .tk-op { color: var(--accent-pink); }
+.code-highlighted .tk-type { color: var(--accent-orange); font-style: italic; }
+
+/* NoteComplete Math Typesetting */
+.md-math { font-family: "KaTeX_Math", "Cambria Math", "STIX Two Math", Georgia, serif; font-size: 1.05em; }
+.md-math-block { margin: 12px 0; padding: 8px 12px; text-align: center; overflow-x: auto; background: var(--bg-sidebar); border-radius: 3px; border: 1px solid var(--border-subtle); }
+.md-math-display { font-size: 1.15em; display: inline-block; }
+.math-frac { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: center; padding: 0 3px; font-size: 0.9em; }
+.math-num { border-bottom: 1px solid currentColor; padding: 0 2px; line-height: 1.1; }
+.math-den { padding: 0 2px; line-height: 1.1; }
+.math-sqrt { display: inline-flex; align-items: baseline; }
+.math-radicand { border-top: 1px solid currentColor; padding: 0 2px; }
 
 /* ============================================================================
    6. DOCKABLE PANEL (Bottom / Left / Right; Horizontal & Vertical Tabs!)
@@ -1330,7 +1467,7 @@ header.titlebar {
   overflow: hidden;
 }
 
-/* Console & arf Terminal */
+/* Console & arf Terminal + Hoverable Output Blocks with Top-Right (...) Menu */
 .console-out {
   flex: 1;
   min-height: 0;
@@ -1344,15 +1481,128 @@ header.titlebar {
   background: var(--bg-editor);
 }
 .console-out.nowrap { white-space: pre; overflow-x: auto; }
+.console-block {
+  display: block;
+  position: relative;
+  padding: 4px 28px 4px 6px;
+  margin-bottom: 3px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+}
+.console-block:hover {
+  background: rgba(98, 114, 164, 0.09);
+  border-color: var(--border-subtle);
+}
 .console-out.scroll-blocks .console-block {
-  max-height: 180px;
+  max-height: 200px;
   overflow: auto;
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 4px;
   margin-bottom: 4px;
 }
+.console-block-more {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border-field);
+  border-radius: 3px;
+  background: var(--bg-sidebar);
+  color: var(--fg-soft);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 5;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+.console-block:hover > .console-block-more,
+.console-block-more.menu-open {
+  display: inline-flex;
+}
+.console-block-more:hover {
+  background: var(--bg-selection);
+  color: var(--fg);
+  border-color: var(--focus-border);
+}
+.output-action-menu {
+  position: fixed;
+  z-index: 250;
+  min-width: 245px;
+  background: var(--bg-menu);
+  color: var(--fg);
+  border: 1px solid var(--border-field);
+  border-radius: 3px;
+  box-shadow: var(--shadow-pop);
+  padding: 4px 0;
+  font-size: 12px;
+}
+.output-action-header {
+  padding: 4px 12px 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+.output-action-btn {
+  width: 100%;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.output-action-btn:hover {
+  background: var(--bg-selection);
+}
+.output-action-btn.sub-item {
+  padding-left: 24px;
+}
 .console-line-err { color: var(--accent-red); }
 .console-line-meta { color: var(--fg-muted); }
+
+/* Help Pane R Commander Match Shortcuts */
+.help-rcmdr-matches {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-field);
+  border-radius: 3px;
+}
+.help-rcmdr-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-purple);
+  margin-bottom: 6px;
+}
+.help-rcmdr-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 8px;
+  margin-bottom: 2px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.help-rcmdr-btn:hover { background: var(--bg-selection); }
+.help-rcmdr-path { color: var(--fg-muted); font-size: 11px; margin-left: 8px; }
 
 /* Dracula ANSI SGR Colors */
 .ansi-30 { color: #21222C; }

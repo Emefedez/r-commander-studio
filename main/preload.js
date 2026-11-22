@@ -78,6 +78,15 @@ contextBridge.exposeInMainWorld('studio', {
   rcmdrCloseDialog: (payload) => ipcRenderer.invoke('rcmdr:closeDialog', payload),
   rcmdrReportHelper: (payload) => ipcRenderer.invoke('rcmdr:reportHelper', payload),
 
+  // Updates, System Desktop Integration & Popout Output Window
+  updaterCheck: (payload) => ipcRenderer.invoke('updater:check', payload),
+  updaterInstall: () => ipcRenderer.invoke('updater:install'),
+  updaterRestart: () => ipcRenderer.invoke('updater:restart'),
+  updaterSettings: () => ipcRenderer.invoke('updater:settings'),
+  updaterSetCheckOnOpen: (on) => ipcRenderer.invoke('updater:setCheckOnOpen', on),
+  installDesktop: () => ipcRenderer.invoke('studio:installDesktop'),
+  openOutputWindow: (payload) => ipcRenderer.invoke('studio:openOutputWindow', payload),
+
   // Events
   onROutput: (cb) => subscribe('r:output', cb),
   onRViewTable: (cb) => subscribe('r:viewTable', cb),
@@ -88,5 +97,7 @@ contextBridge.exposeInMainWorld('studio', {
   onBridgeOpenScript: (cb) => subscribe('bridge:openScript', cb),
   onBridgeOpenPath: (cb) => subscribe('bridge:openPath', cb),
   onMenuCommand: (cb) => subscribe('menu:command', cb),
-  onMenuRcmdr: (cb) => subscribe('menu:rcmdr', cb)
+  onMenuRcmdr: (cb) => subscribe('menu:rcmdr', cb),
+  onUpdaterAvailable: (cb) => subscribe('updater:available', cb),
+  onUpdaterProgress: (cb) => subscribe('updater:progress', cb)
 });

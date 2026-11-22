@@ -47,7 +47,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build installer / executable (${{ matrix.name }})
+      - name: Build portable & installer packages (${{ matrix.name }})
         run: ${{ matrix.cmd }}
 
       - name: Upload artifacts
@@ -56,6 +56,7 @@ jobs:
           name: dist-${{ matrix.name }}
           path: |
             dist/*.AppImage
+            dist/*.tar.gz
             dist/*.dmg
             dist/*.zip
             dist/*.exe

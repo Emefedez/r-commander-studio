@@ -15,6 +15,88 @@ const report = require(path.join(vendorRoot, 'lib', 'report.js'));
 
 const STATE_FIELDS = new Set(['dataset', 'model', 'models', 'hclust']);
 
+// Reverse index: command id -> array of R function names from data/functions.json
+const FNS_BY_CMD = new Map();
+for (const [fnName, cmdIds] of Object.entries(functionsMap || {})) {
+  for (const cid of cmdIds || []) {
+    const key = String(cid);
+    if (!FNS_BY_CMD.has(key)) FNS_BY_CMD.set(key, []);
+    const arr = FNS_BY_CMD.get(key);
+    if (!arr.includes(fnName)) arr.push(fnName);
+  }
+}
+
+const FNS_IGNORE = new Set([
+  'if', 'for', 'while', 'switch', 'return', 'function', 'new', 'Map', 'Set', 'Array', 'Object',
+  'String', 'Number', 'Boolean', 'Math', 'JSON', 'RegExp', 'Error', 'Promise', 'parseInt', 'parseFloat',
+  'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'q', 'dv', 'id', 'num', 'join',
+  'map', 'filter', 'find', 'some', 'every', 'reduce', 'push', 'slice', 'split', 'trim', 'replace',
+  'includes', 'startsWith', 'endsWith', 'concat', 'flat', 'flatMap', 'sort', 'reverse', 'keys', 'values',
+  'entries', 'assign', 'freeze', 'create', 'defineProperty', 'hasOwnProperty', 'toString', 'valueOf',
+  'local', 'print', 'cat', 'c', 'list', 'paste', 'paste0', 'with', 'within'
+]);
+
+// Extra R function aliases for common statistical tests so searching e.g. "shapiro.test" finds normalityTest
+const EXTRA_FN_ALIASES = {
+  normalityTest: ['shapiro.test', 'ad.test', 'cvm.test', 'lillie.test', 'pearson.test', 'sf.test'],
+  Hist: ['hist', 'truehist'],
+  Boxplot: ['boxplot'],
+  scatterplot: ['plot', 'xyplot'],
+  scatterplotMatrix: ['pairs'],
+  linePlot: ['matplot', 'plot'],
+  BarPlot: ['barplot'],
+  PieChart: ['pie'],
+  DotPlot: ['dotchart', 'stripchart'],
+  numSummary: ['summary', 'mean', 'sd', 'IQR', 'quantile'],
+  'rcorr.adjust': ['cor', 'cor.test'],
+  linearModel: ['lm'],
+  generalizedLinearModel: ['glm'],
+  oneWayAnova: ['aov', 'anova', 'oneway.test'],
+  multiWayAnova: ['aov', 'Anova'],
+  singleSampleTTest: ['t.test'],
+  independentSamplesTTest: ['t.test'],
+  pairedTTest: ['t.test']
+};
+
+// Enrich tree nodes in-place with R function names and target id so both sidebar & palette search
+// match EN labels, ES labels, command IDs, and R function names regardless of active language.
+function enrichTreeNodes(nodes) {
+  for (const node of nodes || []) {
+    if (node.sep) continue;
+    if (node.children) {
+      enrichTreeNodes(node.children);
+    } else if (node.id) {
+      const target = commands[node.id]?.target || node.id;
+      const fns = new Set([...(FNS_BY_CMD.get(node.id) || []), ...(FNS_BY_CMD.get(target) || [])]);
+      const spec = catalog[target];
+      if (spec?.pkgs) {
+        for (const p of spec.pkgs) fns.add(p);
+      }
+      if (typeof spec?.code === 'function') {
+        const src = spec.code.toString();
+        for (const m of src.matchAll(/(?:[A-Za-z0-9._]+::)?([A-Za-z.][A-Za-z0-9._]*)\s*\(/g)) {
+          const fn = m[1];
+          if (fn && fn.length > 1 && !FNS_IGNORE.has(fn) && !fn.startsWith('_')) {
+            fns.add(fn);
+          }
+        }
+      }
+      for (const existing of [...fns]) {
+        const aliases = EXTRA_FN_ALIASES[existing];
+        if (aliases) {
+          for (const a of aliases) fns.add(a);
+        }
+      }
+      if (EXTRA_FN_ALIASES[target]) {
+        for (const a of EXTRA_FN_ALIASES[target]) fns.add(a);
+      }
+      node.target = target;
+      node.fns = [...fns];
+    }
+  }
+}
+enrichTreeNodes(tree);
+
 function fold(str) {
   return String(str || '')
     .normalize('NFD')
@@ -172,16 +254,24 @@ class RcmdrService {
           walk(node.children, [...trailEn, enLabel], [...trailEs, esLabel]);
         } else if (node.id && !seen.has(node.id)) {
           seen.add(node.id);
-          const haystack = fold([...trailEn, ...trailEs, enLabel, esLabel, node.id].join(' '));
+          const fns = node.fns || [];
+          const haystack = fold(
+            [...trailEn, ...trailEs, enLabel, esLabel, node.id, node.target || '', ...fns].join(' ')
+          );
           if (!words.length || words.every((w) => haystack.includes(w))) {
             const label = lang === 'es' ? esLabel : enLabel;
+            const altLabel = lang === 'es' ? enLabel : esLabel;
             const pathArr = lang === 'es' ? trailEs : trailEn;
             items.push({
               id: node.id,
               label,
+              altLabel: altLabel !== label ? altLabel : '',
               labelEn: enLabel,
               labelEs: esLabel,
               path: pathArr.join(' ▸ '),
+              pathEn: trailEn.join(' ▸ '),
+              pathEs: trailEs.join(' ▸ '),
+              fns,
               color: node.color || ''
             });
           }
