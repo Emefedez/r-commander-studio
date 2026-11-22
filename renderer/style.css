@@ -453,15 +453,24 @@ header.titlebar {
   border-left: 2px solid transparent;
   border-radius: 0;
   background: transparent;
-  color: var(--fg-muted);
+  color: var(--fg-soft);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: color 0.15s ease, opacity 0.15s ease;
 }
-.act-btn:hover { color: var(--fg); }
+.act-btn.needs-step {
+  color: var(--fg-muted);
+  opacity: 0.72;
+}
+.act-btn:hover {
+  color: var(--fg);
+  opacity: 1;
+}
 .act-btn.active {
   color: var(--fg);
+  opacity: 1;
   border-left-color: var(--accent-pink-soft);
   background: rgba(189, 147, 249, 0.08);
 }
@@ -2508,7 +2517,28 @@ footer.statusbar {
   border-color: var(--accent-purple);
 }
 
-/* Interactive User Guide Modal */
+.t3-status-bar.needs-action {
+  border-bottom: 1px solid var(--accent-yellow);
+  background: rgba(241, 250, 140, 0.08);
+}
+.prereq-card {
+  margin: 12px auto 0;
+  max-width: 540px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-field);
+  border-left: 3px solid var(--accent-cyan);
+  border-radius: 3px;
+  background: var(--bg-sidebar);
+  color: var(--fg);
+  text-align: left;
+  line-height: 1.5;
+}
+.prereq-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .guide-modal {
   width: min(860px, calc(100vw - 24px));
 }

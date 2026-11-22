@@ -62,6 +62,40 @@ function sendToRenderer(channel, payload) {
   }
 }
 
+function uiZoomStep(input) {
+  if (!(input.control || input.meta) || !input.shift || input.alt) return null;
+  if (input.key === '_' || input.key === '-' || input.code === 'Minus' || input.code === 'Slash' || input.code === 'NumpadSubtract') return -1;
+  if (
+    input.key === '+' ||
+    input.key === '*' ||
+    input.key === ']' ||
+    (input.key === '=' && input.code !== 'Digit0') ||
+    input.code === 'Equal' ||
+    input.code === 'BracketRight' ||
+    input.code === 'NumpadAdd'
+  ) {
+    return 1;
+  }
+  if (input.key === '0' || input.key === ')' || input.code === 'Digit0' || input.code === 'Numpad0') return 0;
+  return null;
+}
+
+function editorZoomStep(input) {
+  if (!(input.control || input.meta) || input.shift || input.alt) return null;
+  if (input.key === '-' || input.key === '_' || input.code === 'Minus' || input.code === 'Slash' || input.code === 'NumpadSubtract') return -1;
+  if (
+    input.key === '+' ||
+    input.key === '=' ||
+    input.key === '*' ||
+    input.code === 'Equal' ||
+    input.code === 'BracketRight' ||
+    input.code === 'NumpadAdd'
+  ) {
+    return 1;
+  }
+  if (input.key === '0' || input.code === 'Digit0' || input.code === 'Numpad0') return 0;
+  return null;
+}
 function focusMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -162,10 +196,7 @@ function buildAppMenu(lang = mainI18n.getLang()) {
         { label: t('switchLanguage'), click: () => sendToRenderer('menu:command', 'switch-language') },
         { label: t('openSettings'), accelerator: 'CmdOrCtrl+,', click: () => sendToRenderer('menu:command', 'open-settings') },
         { type: 'separator' },
-        { role: 'toggleDevTools' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' }
+        { role: 'toggleDevTools' }
       ]
     },
     {
@@ -225,6 +256,30 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false
+    }
+  });
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    const uiStep = uiZoomStep(input);
+    if (uiStep !== null) {
+      event.preventDefault();
+      sendToRenderer('studio:zoomStep', { kind: 'ui', step: uiStep });
+      return;
+    }
+    const edStep = editorZoomStep(input);
+    if (edStep !== null) {
+      event.preventDefault();
+      sendToRenderer('studio:zoomStep', { kind: 'editor', step: edStep });
+      return;
+    }
+    const k = String(input.key || '').toLowerCase();
+    if (k === 't') {
+      event.preventDefault();
+      sendToRenderer('menu:command', input.shift ? 'reopen-closed-tab' : 'new-r');
+    } else if (k === 'w' && !input.shift) {
+      event.preventDefault();
+      sendToRenderer('menu:command', 'close-tab');
     }
   });
 
@@ -292,16 +347,20 @@ function registerIpc() {
   });
 
   // --- File & Workspace Explorer I/O ---
-  ipcMain.handle('file:open', async (_e, { defaultDir } = {}) => {
-    const res = await dialog.showOpenDialog(mainWindow, {
+  ipcMain.handle('file:open', async (_e, opts) => {
+    const defaultDir = opts && typeof opts === 'object' ? opts.defaultDir : undefined;
+    const dialogOpts = {
       title: mainI18n.t('openFile'),
-      defaultPath: defaultDir && fs.existsSync(defaultDir) ? defaultDir : undefined,
       properties: ['openFile', 'multiSelections'],
       filters: [
         { name: 'R, Markdown & Data', extensions: ['R', 'r', 'Rmd', 'rmd', 'qmd', 'md', 'csv', 'tsv', 'txt', 'RData', 'rda', 'rds', 'xlsx', 'xls'] },
         { name: 'All Files', extensions: ['*'] }
       ]
-    });
+    };
+    if (defaultDir && typeof defaultDir === 'string' && fs.existsSync(defaultDir)) {
+      dialogOpts.defaultPath = defaultDir;
+    }
+    const res = await dialog.showOpenDialog(mainWindow, dialogOpts);
     if (res.canceled || !res.filePaths.length) return null;
     const files = [];
     for (const filePath of res.filePaths) {

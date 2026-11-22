@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld('studio', {
   onBridgeOpenPath: (cb) => subscribe('bridge:openPath', cb),
   onMenuCommand: (cb) => subscribe('menu:command', cb),
   onMenuRcmdr: (cb) => subscribe('menu:rcmdr', cb),
+  onZoomStep: (cb) => subscribe('studio:zoomStep', cb),
   onUpdaterAvailable: (cb) => subscribe('updater:available', cb),
   onUpdaterProgress: (cb) => subscribe('updater:progress', cb)
 });

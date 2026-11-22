@@ -131,6 +131,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
   };
 
   const $ = (id) => document.getElementById(id);
+  let copilot = null;
 
   let toastTimer = null;
   function showToast(message, kind = 'info') {
@@ -387,9 +388,15 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
     if (hasBottom && !state.panelMaximized) dockBottom.style.height = `${L.panel.size}px`;
 
-    // Sync Activity Bar & Top Bar active indicators
+    // Sync Activity Bar & Top Bar active / readiness indicators
     $('actExplorer').classList.toggle('active', L.sidebars.explorer.open);
     $('actRcmdr').classList.toggle('active', L.sidebars.rcmdr.open);
+    $('actPlots')?.classList.toggle('active', L.panel.open && state.activePanelTab === 'plots');
+    $('actPlots')?.classList.toggle('needs-step', state.plots.length === 0);
+    $('actHelp')?.classList.toggle('active', L.panel.open && state.activePanelTab === 'help');
+    $('actHelp')?.classList.toggle('needs-step', !state.lastHelpTopic);
+    $('actCopilot')?.classList.toggle('active', Boolean(copilot?.windowOpen));
+    $('actCopilot')?.classList.toggle('needs-step', !copilot?.status?.t3Running);
     $('btnToggleExplorer').classList.toggle('active', L.sidebars.explorer.open);
     $('btnToggleRcmdr').classList.toggle('active', L.sidebars.rcmdr.open);
     $('btnTogglePanel').classList.toggle('active', L.panel.open);
@@ -1096,11 +1103,27 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
     const canvas = $('plotsCanvas');
     canvas.textContent = '';
+    $('actPlots')?.classList.toggle('needs-step', !hasPlot);
     if (!hasPlot) {
+      const isEs = getLang() === 'es';
       const empty = document.createElement('div');
       empty.className = 'ws-empty';
-      empty.textContent = t('plotsEmpty');
+      empty.innerHTML =
+        `<div>${escapeHtmlText(t('plotsEmpty'))}</div>` +
+        `<div class="prereq-card">` +
+        `<strong>${isEs ? 'Paso previo requerido:' : 'Prerequisite step required:'}</strong> ` +
+        `<span>${
+          isEs
+            ? 'Ejecuta código con plot() / ggplot() en el editor (Ctrl+Intro) o elige un gráfico en el menú Gráficas de R Commander.'
+            : 'Run code with plot() / ggplot() in the editor (Ctrl+Enter) or choose a chart from the R Commander Graphs menu.'
+        }</span>` +
+        `<div class="prereq-actions">` +
+        `<button type="button" class="dlg-btn primary" id="btnPrereqRunPlot">${isEs ? '1. Ejecutar script actual (Ctrl+Intro)' : '1. Run Current Script (Ctrl+Enter)'}</button>` +
+        `<button type="button" class="dlg-btn" id="btnPrereqOpenGraphsMenu">${isEs ? '2. Ir al menú Gráficas de R Commander' : '2. Go to R Commander Graphs Menu'}</button>` +
+        `</div></div>`;
       canvas.append(empty);
+      canvas.querySelector('#btnPrereqRunPlot')?.addEventListener('click', () => handleStudioCommand('run-all'));
+      canvas.querySelector('#btnPrereqOpenGraphsMenu')?.addEventListener('click', () => expandRcmdrCategory('Graphs'));
       return;
     }
     const frame = document.createElement('div');
@@ -1129,9 +1152,37 @@ boxplot(Sepal.Length ~ Species, data = iris,
   }
 
   // --- R Help Tab ---
+  function renderHelpEmptyPrereq() {
+    const isEs = getLang() === 'es';
+    const host = $('helpContent');
+    if (!host) return;
+    host.innerHTML =
+      `<div class="ws-empty">` +
+      `<div>${escapeHtmlText(t('helpEmpty'))}</div>` +
+      `<div class="prereq-card">` +
+      `<strong>${isEs ? 'Paso previo requerido:' : 'Prerequisite step required:'}</strong> ` +
+      `<span>${
+        isEs
+          ? 'Sitúa el cursor sobre cualquier función en el editor y pulsa F1, o busca una función arriba o abre uno de estos manuales:'
+          : 'Place the cursor on any function in the editor and press F1, search above, or open one of these manuals:'
+      }</span>` +
+      `<div class="prereq-actions">` +
+      `<button type="button" class="dlg-btn primary" data-help-topic="lm">?lm (Linear Model)</button>` +
+      `<button type="button" class="dlg-btn" data-help-topic="t.test">?t.test</button>` +
+      `<button type="button" class="dlg-btn" data-help-topic="boxplot">?boxplot</button>` +
+      `<button type="button" class="dlg-btn" id="btnPrereqStartHelp">help.start()</button>` +
+      `</div></div></div>`;
+    for (const b of host.querySelectorAll('[data-help-topic]')) {
+      b.addEventListener('click', () => openRDocs(b.getAttribute('data-help-topic')));
+    }
+    host.querySelector('#btnPrereqStartHelp')?.addEventListener('click', () => executeR('help.start()', { label: 'help.start()', fromMenu: true }));
+  }
+
   async function openRDocs(topic) {
     const clean = String(topic || '').trim();
     if (!clean) return;
+    state.lastHelpTopic = clean;
+    $('actHelp')?.classList.remove('needs-step');
     $('helpSearchInput').value = clean;
     openPanelTab('help');
     const host = $('helpContent');
@@ -3220,7 +3271,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
   renderWorkspace();
   renderFolderTree();
   renderPlotPane();
-  $('helpContent').innerHTML = `<div class="ws-empty">${t('helpEmpty')}</div>`;
+  renderHelpEmptyPrereq();
   applyWorkbenchLayout();
   refreshStatusBar();
   applySettingsUI();
@@ -3355,6 +3406,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
     window.studio.onMenuCommand((cmd) => handleStudioCommand(cmd));
     window.studio.onMenuRcmdr((id) => triggerRcmdrCommand(id));
+    window.studio.onZoomStep?.(({ kind, step }) => applyZoomStep(kind, step));
     if (window.studio.onUpdaterAvailable) {
       window.studio.onUpdaterAvailable((info) => checkAndPromptForUpdate(false, info));
     }
@@ -3387,31 +3439,28 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const key = e.key.toLowerCase();
     // Ctrl + / Ctrl - / Ctrl 0 (no Shift) -> change ONLY Editor text size
     // Ctrl + Shift + + / Ctrl + Shift + - / Ctrl + Shift + 0 -> change both Editor and UI zoom factor
-    const isZoomPlus = e.key === '+' || e.key === '=' || e.code === 'Equal' || e.code === 'NumpadAdd';
-    const isZoomMinus = e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract';
-    const isZoomReset = e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0';
+    // Recognizes US, Spanish (BracketRight '+' / '*', Slash '-' / '_', Digit0 '0' / '='), and Numpad keys.
+    const isZoomReset =
+      e.key === '0' || e.key === ')' || e.code === 'Digit0' || e.code === 'Numpad0';
+    const isZoomPlus =
+      !isZoomReset &&
+      (e.key === '+' ||
+        e.key === '*' ||
+        e.key === ']' ||
+        e.key === '=' ||
+        e.code === 'Equal' ||
+        e.code === 'BracketRight' ||
+        e.code === 'NumpadAdd');
+    const isZoomMinus =
+      e.key === '-' ||
+      e.key === '_' ||
+      e.code === 'Minus' ||
+      e.code === 'Slash' ||
+      e.code === 'NumpadSubtract';
     if (!e.altKey && (isZoomPlus || isZoomMinus || isZoomReset)) {
       e.preventDefault();
-      if (e.shiftKey) {
-        const curZ = state.uiZoomFactor || 1;
-        const nextZ = isZoomReset ? 1 : isZoomMinus ? Math.max(0.7, +(curZ - 0.1).toFixed(2)) : Math.min(1.6, +(curZ + 0.1).toFixed(2));
-        state.uiZoomFactor = nextZ;
-        localStorage.setItem('rcs-ui-zoom-factor', String(nextZ));
-        if (window.studio?.setUiZoom) {
-          window.studio.setUiZoom(nextZ);
-        } else {
-          document.documentElement.style.zoom = nextZ === 1 ? '' : String(nextZ);
-        }
-        state.editors.forEach((ed) => ed?.layout());
-        showToast(`UI + Editor Zoom: ${Math.round(nextZ * 100)}%`);
-      } else {
-        const curF = state.editorFontSize || 13.5;
-        const nextF = isZoomReset ? 13.5 : isZoomMinus ? Math.max(10, +(curF - 1).toFixed(1)) : Math.min(28, +(curF + 1).toFixed(1));
-        state.editorFontSize = nextF;
-        localStorage.setItem('rcs-editor-font-size', String(nextF));
-        state.editors.forEach((ed) => ed?.updateOptions({ fontSize: nextF }));
-        showToast(`Editor Font Size: ${nextF}px`);
-      }
+      const step = isZoomReset ? 0 : isZoomMinus ? -1 : 1;
+      applyZoomStep(e.shiftKey ? 'ui' : 'editor', step);
       return;
     }
     if (e.altKey && key === 'b') {
@@ -3681,6 +3730,40 @@ boxplot(Sepal.Length ~ Species, data = iris,
     `;
   }
 
+  function expandRcmdrCategory(enCategoryName) {
+    state.layout.setSidebarOpen('rcmdr', true);
+    applyWorkbenchLayout();
+    $('rcmdrSearch').value = '';
+    for (const node of state.tree || []) {
+      if (!node.sep && node.children && node.label?.en === enCategoryName) {
+        node._expanded = true;
+      }
+    }
+    renderRcmdrTree();
+  }
+
+  function applyZoomStep(kind, step) {
+    if (kind === 'ui') {
+      const curZ = state.uiZoomFactor || 1;
+      const nextZ = step === 0 ? 1 : step < 0 ? Math.max(0.7, +(curZ - 0.1).toFixed(2)) : Math.min(1.6, +(curZ + 0.1).toFixed(2));
+      state.uiZoomFactor = nextZ;
+      localStorage.setItem('rcs-ui-zoom-factor', String(nextZ));
+      if (window.studio?.setUiZoom) {
+        window.studio.setUiZoom(nextZ);
+      } else {
+        document.documentElement.style.zoom = nextZ === 1 ? '' : String(nextZ);
+      }
+      state.editors.forEach((ed) => ed?.layout());
+      showToast(`UI + Editor Zoom: ${Math.round(nextZ * 100)}%`);
+    } else {
+      const curF = state.editorFontSize || 13.5;
+      const nextF = step === 0 ? 13.5 : step < 0 ? Math.max(10, +(curF - 1).toFixed(1)) : Math.min(28, +(curF + 1).toFixed(1));
+      state.editorFontSize = nextF;
+      localStorage.setItem('rcs-editor-font-size', String(nextF));
+      state.editors.forEach((ed) => ed?.updateOptions({ fontSize: nextF }));
+      showToast(`Editor Font Size: ${nextF}px`);
+    }
+  }
   function openGuideModal(popout = false) {
     const html = buildGuideHtml();
     if (popout && window.studio?.openOutputWindow) {
@@ -3713,7 +3796,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
   });
 
   // Initialize T3 Code Copilot (Ctrl+Alt+B Chat Window & Ctrl+I Inline Fix)
-  const copilot = window.StudioT3Copilot
+  copilot = window.StudioT3Copilot
     ? new window.StudioT3Copilot({
         getState: () => state,
         getActiveTab: () => activeTab(),
@@ -3779,20 +3862,66 @@ boxplot(Sepal.Length ~ Species, data = iris,
   $('btnToggleRcmdr').addEventListener('click', () => handleStudioCommand('toggle-rcmdr-sidebar'));
   $('btnTogglePanel').addEventListener('click', () => handleStudioCommand('toggle-panel'));
 
-  // Activity Bar
+  // Activity Bar (when an item is in .needs-step state, clicking it navigates to the required prerequisite step and explains how to proceed!)
   $('actExplorer').addEventListener('click', () => handleStudioCommand('toggle-explorer-sidebar'));
   $('actRcmdr').addEventListener('click', () => handleStudioCommand('toggle-rcmdr-sidebar'));
   $('actPlots').addEventListener('click', (e) => {
-    if (e.shiftKey) popoutPanelSection('plots');
-    else openPanelTab('plots');
+    if (e.shiftKey && state.plots.length) {
+      popoutPanelSection('plots');
+      return;
+    }
+    openPanelTab('plots');
+    if (!state.plots.length) {
+      const isEs = getLang() === 'es';
+      expandRcmdrCategory('Graphs');
+      const tab = activeTab();
+      if (tab && tab.kind === 'code') state.editors[tab.groupIndex]?.focus();
+      showToast(
+        isEs
+          ? 'Paso requerido para Gráficas: Ejecuta un script con plot()/ggplot() (Ctrl+Intro) o elige una gráfica en el menú Gráficas abierto a la derecha.'
+          : 'Prerequisite for Plots: Run a script with plot()/ggplot() (Ctrl+Enter) or pick a chart from the Graphs menu opened on the right.'
+      );
+    }
   });
   $('actHelp').addEventListener('click', (e) => {
-    if (e.shiftKey) popoutPanelSection('help');
-    else openPanelTab('help');
+    if (e.shiftKey && state.lastHelpTopic) {
+      popoutPanelSection('help');
+      return;
+    }
+    const tab = activeTab();
+    const ed = tab && tab.kind === 'code' ? state.editors[tab.groupIndex] : null;
+    const pos = ed?.getPosition();
+    const word = pos && tab?.model ? tab.model.getWordAtPosition(pos) : null;
+    if (word?.word) {
+      openRDocs(word.word);
+      return;
+    }
+    openPanelTab('help');
+    $('helpSearchInput')?.focus();
+    if (!state.lastHelpTopic) {
+      const isEs = getLang() === 'es';
+      showToast(
+        isEs
+          ? 'Paso requerido para Manual: Escribe una función de R en el buscador de Ayuda (ahora enfocado) o sitúa el cursor sobre una función en el editor y pulsa F1.'
+          : 'Prerequisite for Manual: Type an R function in the focused Help search box, or place the cursor on a function in the editor and press F1.'
+      );
+    }
   });
   $('actCopilot')?.addEventListener('click', (e) => {
-    if (e.shiftKey) copilot?.popoutWindow();
-    else copilot?.toggleWindow();
+    if (e.shiftKey) {
+      copilot?.popoutWindow();
+      return;
+    }
+    copilot?.toggleWindow();
+    if (copilot?.windowOpen && !copilot?.status?.t3Running) {
+      const isEs = getLang() === 'es';
+      document.querySelector('.t3-status-bar')?.classList.add('needs-action');
+      showToast(
+        isEs
+          ? 'Paso requerido para T3 Code: Pulsa "Instalar T3 Code" (o "Iniciar T3 Code") en la cabecera del panel, o usa directamente /fix, /explain, /plot, /rmd.'
+          : 'Prerequisite for T3 Code: Click "Install T3 Code" (or "Start T3 Code") at the top of the panel, or use /fix, /explain, /plot, /rmd directly.'
+      );
+    }
   });
   $('actGuide')?.addEventListener('click', (e) => openGuideModal(Boolean(e.shiftKey)));
   $('actTheme').addEventListener('click', () => handleStudioCommand('toggle-theme'));
