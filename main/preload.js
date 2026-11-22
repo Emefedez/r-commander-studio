@@ -91,6 +91,8 @@ contextBridge.exposeInMainWorld('studio', {
   updaterInstall: () => ipcRenderer.invoke('updater:install'),
   updaterRestart: () => ipcRenderer.invoke('updater:restart'),
   updaterSettings: () => ipcRenderer.invoke('updater:settings'),
+  updaterListReleases: () => ipcRenderer.invoke('updater:listReleases'),
+  buildInfo: () => ipcRenderer.invoke('studio:buildInfo'),
   updaterSetCheckOnOpen: (on) => ipcRenderer.invoke('updater:setCheckOnOpen', on),
   installDesktop: () => ipcRenderer.invoke('studio:installDesktop'),
   openOutputWindow: (payload) => ipcRenderer.invoke('studio:openOutputWindow', payload),

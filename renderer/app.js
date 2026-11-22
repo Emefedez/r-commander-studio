@@ -565,6 +565,47 @@ boxplot(Sepal.Length ~ Species, data = iris,
     if (key === 'arf') ensureArfStarted();
   }
 
+  // Makes an overflowing row horizontally scrollable with the mouse wheel and
+  // fades whichever edge still has hidden content. `startAtEnd` keeps the
+  // rightmost items (e.g. split/dock/close) in view when it first overflows.
+  function wireHScrollFade(el, { startAtEnd = false } = {}) {
+    if (!el) return;
+    el.classList.add('hscroll-fade');
+    let wasOverflowing = false;
+    const update = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      const overflowing = max > 1;
+      if (overflowing && !wasOverflowing && startAtEnd) {
+        el.style.scrollBehavior = 'auto';
+        el.scrollLeft = max;
+        el.style.scrollBehavior = '';
+      }
+      wasOverflowing = overflowing;
+      el.classList.toggle('fade-left', overflowing && el.scrollLeft > 1);
+      el.classList.toggle('fade-right', overflowing && el.scrollLeft < max - 1);
+    };
+    el.addEventListener('scroll', update, { passive: true });
+    el.addEventListener(
+      'wheel',
+      (e) => {
+        if (el.scrollWidth <= el.clientWidth + 1) return;
+        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (!delta) return;
+        e.preventDefault();
+        el.scrollLeft += delta;
+      },
+      { passive: false }
+    );
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(update);
+      ro.observe(el);
+      for (const child of el.children) ro.observe(child);
+    }
+    window.addEventListener('resize', update);
+    el._hscrollUpdate = update;
+    update();
+  }
+
   function wireWorkbenchDragDock() {
     const zLeft = $('dropZoneLeft');
     const zRight = $('dropZoneRight');
@@ -882,6 +923,8 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
     restorePanelTabOrder();
     applyLayoutLockUI();
+    wireHScrollFade(tabStrip);
+    wireHScrollFade(document.querySelector('#dockPanel .panel-actions'), { startAtEnd: true });
   }
 
   // --- Settings Application ---
@@ -3652,6 +3695,8 @@ boxplot(Sepal.Length ~ Species, data = iris,
       splitAnimTimer = setTimeout(() => {
         panelBodyEl.classList.remove('split-animating');
         syncSplitHeaderWidth();
+        $('panelTabs')?._hscrollUpdate?.();
+        document.querySelector('#dockPanel .panel-actions')?._hscrollUpdate?.();
         fitArfXterm();
       }, 260);
     }
@@ -3894,8 +3939,27 @@ boxplot(Sepal.Length ~ Species, data = iris,
   }
 
   // --- Studio Commands ---
-  async function handleStudioCommand(cmd) {
+  async function handleStudioCommand(cmd, arg) {
     switch (cmd) {
+      case 'open-url':
+        if (arg) window.studio?.openExternal(arg);
+        break;
+      case 'refresh-builds':
+        await loadBuildsMenu(true);
+        break;
+      case 'copy-build-info': {
+        const b = menuBar.builds?.info;
+        if (b) {
+          const txt = `R Commander Studio v${b.version}${b.commit ? ` (${b.commit}${b.dirty ? '+dirty' : ''})` : ''}${b.date ? ` built ${b.date}` : ''} — ${b.installPath || ''}`;
+          try {
+            await navigator.clipboard.writeText(txt);
+          } catch {
+            /* clipboard unavailable */
+          }
+          showToast(t('buildInfoCopied', txt));
+        }
+        break;
+      }
       case 'new-r':
       case 'new-tab':
         createCodeTab({ name: `script-${state.nextTabNum}.R`, content: '', language: 'r' });
@@ -4335,6 +4399,27 @@ boxplot(Sepal.Length ~ Species, data = iris,
     onStudioCommand: handleStudioCommand,
     onRcmdrCommand: triggerRcmdrCommand
   });
+  // Help > Builds: installed build info + recent GitHub releases.
+  menuBar.builds = { info: null, releases: [], state: 'loading' };
+  async function loadBuildsMenu(force = false) {
+    try {
+      menuBar.builds.info = (await window.studio?.buildInfo?.()) || null;
+    } catch {
+      /* ignore */
+    }
+    if (force) menuBar.builds.state = 'loading';
+    menuBar.render();
+    try {
+      const list = (await window.studio?.updaterListReleases?.()) || [];
+      menuBar.builds.releases = list;
+      menuBar.builds.state = 'ok';
+    } catch {
+      menuBar.builds.state = 'error';
+    }
+    menuBar.render();
+  }
+  setTimeout(() => loadBuildsMenu(), 2500);
+
   const palette = new window.StudioCommandPalette({
     getStudioCommands: getStudioCommandsList,
     onStudioCommand: handleStudioCommand,

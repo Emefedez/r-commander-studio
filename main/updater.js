@@ -252,6 +252,21 @@ function createUpdater({
   return {
     check,
     install,
+    // Recent published builds for Help > Builds (newest first).
+    listReleases: async () => {
+      const list = await fetchReleases();
+      return (list || [])
+        .filter((r) => !r.draft && parseVersion(r.tag_name))
+        .sort((a, b) => (newer(a.tag_name, b.tag_name) ? -1 : newer(b.tag_name, a.tag_name) ? 1 : 0))
+        .slice(0, 10)
+        .map((r) => ({
+          tag: r.tag_name,
+          name: r.name || r.tag_name,
+          date: r.published_at || r.created_at || null,
+          url: r.html_url,
+          prerelease: Boolean(r.prerelease)
+        }));
+    },
     skip: (version) => remember({ skip: version }),
     setCheckOnOpen: (on) => remember({ checkOnOpen: Boolean(on) }),
     settings: async () => {

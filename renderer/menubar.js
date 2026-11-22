@@ -175,6 +175,7 @@
             { sep: true },
             ...rcmdrSub('Help'),
             { sep: true },
+            { label: t('menuBuilds'), children: this._buildsItems(t) },
             { label: t('checkForUpdates'), cmd: 'check-updates' },
             { label: t('checkForUpdatesOnOpen'), cmd: 'toggle-update-on-open' },
             { label: t('installDesktopEntry'), cmd: 'install-desktop' },
@@ -185,6 +186,44 @@
           ]
         }
       ];
+    }
+
+    // Help > Builds: installed build + recent published builds (set by app.js).
+    _buildsItems(t) {
+      const b = this.builds || {};
+      const info = b.info;
+      const fmtDate = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        const loc = window.StudioI18n?.getLang?.() === 'es' ? 'es-ES' : 'en-US';
+        return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(loc, { dateStyle: 'medium', timeStyle: 'short' });
+      };
+      const items = [];
+      if (info) {
+        const commit = info.commit ? `${info.commit}${info.dirty ? '+' : ''}` : info.source === 'dev' ? 'dev' : '';
+        items.push({
+          label: t('buildInstalled', `v${info.version}`),
+          sub: [commit, fmtDate(info.date)].filter(Boolean).join(' · '),
+          checked: true,
+          cmd: 'copy-build-info'
+        });
+      }
+      items.push({ sep: true });
+      if (b.state === 'loading' || !b.state) items.push({ label: t('buildsLoading'), cmd: 'refresh-builds' });
+      else if (b.state === 'error') items.push({ label: t('buildsUnavailable'), cmd: 'refresh-builds' });
+      for (const r of b.releases || []) {
+        const isCurrent = info && r.tag.replace(/^v/i, '') === info.version;
+        items.push({
+          label: r.tag + (r.prerelease ? ' (pre)' : ''),
+          sub: fmtDate(r.date),
+          checked: Boolean(isCurrent),
+          cmd: 'open-url',
+          arg: r.url
+        });
+      }
+      items.push({ sep: true });
+      items.push({ label: t('buildsAll'), cmd: 'open-url', arg: 'https://github.com/Emefedez/r-commander-studio/releases' });
+      return items;
     }
 
     _buildMenuList(items, isSub = false) {
@@ -240,7 +279,7 @@
             e.stopPropagation();
             this.closeAll();
             if (item.cmd === 'new-rmd' && e.shiftKey) this.onStudioCommand('new-rmd-template');
-            else if (item.cmd) this.onStudioCommand(item.cmd);
+            else if (item.cmd) this.onStudioCommand(item.cmd, item.arg);
             else if (item.rcmdrId) this.onRcmdrCommand(item.rcmdrId);
           });
           panel.append(btn);

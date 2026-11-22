@@ -3272,15 +3272,17 @@ body.layout-locked .sidebar-titlebar:active { cursor: default; }
 .dock-panel.orient-horizontal.is-split > .panel-header {
   overflow: hidden;
 }
-/* When split, the action buttons give way first: they clip from the left
-   (less used toggles) while split/dock/close stay visible on the right. */
+/* When split, the action buttons become a horizontally scrollable strip
+   (mouse wheel scrolls it) with soft fades on whichever edge has more. */
 .dock-panel.orient-horizontal.is-split .panel-actions {
   margin-left: auto;
   flex: 0 1 auto;
   min-width: 0;
-  overflow: hidden;
-  justify-content: flex-end;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
+.dock-panel.orient-horizontal.is-split .panel-actions::-webkit-scrollbar { display: none; }
 .dock-panel.orient-horizontal.is-split .panel-actions > * {
   flex-shrink: 0;
 }
@@ -3329,3 +3331,37 @@ body.layout-locked .sidebar-titlebar:active { cursor: default; }
   border-left: 2px solid var(--accent-cyan);
   background: linear-gradient(to right, rgba(139, 233, 253, 0.1), rgba(139, 233, 253, 0.02) 70%, transparent);
 }
+
+/* Horizontal scroll strips with animated edge fades (see wireHScrollFade) */
+@property --fade-l {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-r {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+.hscroll-fade {
+  --fade-l: 0px;
+  --fade-r: 0px;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--fade-l),
+    #000 calc(100% - var(--fade-r)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--fade-l),
+    #000 calc(100% - var(--fade-r)),
+    transparent 100%
+  );
+  transition: --fade-l 0.2s ease, --fade-r 0.2s ease;
+  scroll-behavior: smooth;
+}
+.hscroll-fade.fade-left { --fade-l: 28px; }
+.hscroll-fade.fade-right { --fade-r: 28px; }

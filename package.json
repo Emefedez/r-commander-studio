@@ -1,6 +1,6 @@
 {
   "name": "r-commander-studio",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Standalone VS Code-style R + R Markdown IDE with Monaco Editor, 371 R Commander dialogs, R LSP + hover docs, arf & R terminals, interactive Data Viewer, Markdown Viewer, and NoteComplete Bridge",
   "author": "Emefedez <https://github.com/Emefedez>",
   "homepage": "https://github.com/Emefedez/r-commander-studio",
@@ -15,13 +15,13 @@
     "sync-rcmdr": "node tools/sync-rcmdr.mjs",
     "screenshots": "node tools/capture-screenshots.mjs",
     "install-desktop": "node -e \"require('./main/linux-integration').integrateLinuxDesktop({ createDesktopShortcut: true }).then(r => console.log('Installed:', r))\"",
-    "dist": "electron-builder --publish never",
-    "dist:dir": "electron-builder --dir --publish never",
-    "dist:linux": "electron-builder --linux --x64 --arm64 --publish never",
-    "dist:linux:x64": "electron-builder --linux --x64 --publish never",
-    "dist:linux:arm64": "electron-builder --linux --arm64 --publish never",
-    "dist:mac": "electron-builder --mac --arm64 --publish never",
-    "dist:win": "electron-builder --win --x64 --publish never"
+    "dist": "node tools/stamp-build.mjs && electron-builder --publish never",
+    "dist:dir": "node tools/stamp-build.mjs && electron-builder --dir --publish never",
+    "dist:linux": "node tools/stamp-build.mjs && electron-builder --linux --x64 --arm64 --publish never",
+    "dist:linux:x64": "node tools/stamp-build.mjs && electron-builder --linux --x64 --publish never",
+    "dist:linux:arm64": "node tools/stamp-build.mjs && electron-builder --linux --arm64 --publish never",
+    "dist:mac": "node tools/stamp-build.mjs && electron-builder --mac --arm64 --publish never",
+    "dist:win": "node tools/stamp-build.mjs && electron-builder --win --x64 --publish never"
   },
   "keywords": [
     "r",

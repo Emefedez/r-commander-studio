@@ -735,6 +735,18 @@ function registerIpc() {
     await appUpdater.setCheckOnOpen(on);
     return true;
   });
+  ipcMain.handle('studio:buildInfo', async () => {
+    const base = { version: app.getVersion(), packaged: app.isPackaged, installPath: path.dirname(app.getPath('exe')) };
+    try {
+      return { ...base, ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'shared', 'build-info.json'), 'utf8')), version: base.version };
+    } catch {
+      return { ...base, commit: null, date: null, source: app.isPackaged ? 'unknown' : 'dev' };
+    }
+  });
+  ipcMain.handle('updater:listReleases', async () => {
+    if (!appUpdater) return [];
+    return appUpdater.listReleases();
+  });
   ipcMain.handle('studio:installDesktop', async () => {
     return integrateLinuxDesktop({ createDesktopShortcut: true });
   });
