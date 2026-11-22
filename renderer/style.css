@@ -2741,6 +2741,7 @@ footer.statusbar {
 .t3-composer-left {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
   min-width: 0;
   flex: 1;
@@ -2756,10 +2757,11 @@ footer.statusbar {
   box-shadow: 0 0 0 1px var(--accent-red);
 }
 .t3-provider-select,
-.t3-model-select {
+.t3-model-select,
+.t3-effort-select {
   height: 24px;
-  max-width: 125px;
-  min-width: 74px;
+  max-width: 112px;
+  min-width: 60px;
   padding: 0 5px;
   background: var(--bg-sidebar);
   border: 1px solid var(--border-field);
@@ -2769,10 +2771,15 @@ footer.statusbar {
   cursor: pointer;
 }
 .t3-model-select {
-  max-width: 145px;
+  max-width: 132px;
+}
+.t3-effort-select {
+  max-width: 64px;
+  min-width: 52px;
 }
 .t3-provider-select:focus,
-.t3-model-select:focus {
+.t3-model-select:focus,
+.t3-effort-select:focus {
   outline: none;
   border-color: var(--accent-purple);
 }

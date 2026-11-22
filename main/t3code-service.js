@@ -1086,13 +1086,16 @@ class T3CodeService {
     };
   }
 
-  async _runHarness(provider, { fullPrompt, model = '' }) {
+  async _runHarness(provider, { fullPrompt, model = '', effort = 'medium' }) {
     const harnesses = await this.findHarnesses();
     const bin = harnesses[provider];
     if (!bin) {
       throw new Error(`${HARNESS_PROVIDERS[provider]?.label || provider} is not installed on PATH.`);
     }
     const cleanModel = model && MODEL_NAME_RE.test(model) ? model : '';
+    const cleanEffort = ['low', 'medium', 'high'].includes(String(effort || '').toLowerCase())
+      ? String(effort).toLowerCase()
+      : 'medium';
     const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rcs-ai-'));
     try {
       let args = [];
@@ -1101,7 +1104,7 @@ class T3CodeService {
       let codexOutFile = null;
 
       if (provider === 'claude') {
-        args = ['-p', '--output-format', 'json'];
+        args = ['-p', '--output-format', 'json', '--effort', cleanEffort];
         if (cleanModel) args.push('--model', cleanModel);
         stdinText = fullPrompt;
       } else if (provider === 'antigravity') {
@@ -1109,7 +1112,19 @@ class T3CodeService {
         if (cleanModel) args.push('--model', cleanModel);
       } else if (provider === 'codex') {
         codexOutFile = path.join(tmpDir, 'answer.txt');
-        args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--ephemeral', '--color', 'never', '-o', codexOutFile];
+        args = [
+          'exec',
+          '--skip-git-repo-check',
+          '--sandbox',
+          'read-only',
+          '--ephemeral',
+          '--color',
+          'never',
+          '-c',
+          `model_reasoning_effort="${cleanEffort}"`,
+          '-o',
+          codexOutFile
+        ];
         if (cleanModel) args.push('-m', cleanModel);
         args.push('-');
         stdinText = fullPrompt;
@@ -1201,9 +1216,9 @@ class T3CodeService {
 
     const { system, fullPrompt } = this._buildPrompt(opts);
 
-    // If user explicitly picked one of the 4 main CLI harnesses, run it directly with their chosen model!
+    // If user explicitly picked one of the 4 main CLI harnesses, run it directly with their chosen model & effort!
     if (provider && HARNESS_PROVIDERS[provider]) {
-      return this._runHarness(provider, { fullPrompt, model: opts.model || '' });
+      return this._runHarness(provider, { fullPrompt, model: opts.model || '', effort: opts.effort || 'medium' });
     }
 
     await this.startBackend().catch(() => {});

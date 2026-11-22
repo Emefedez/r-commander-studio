@@ -24,6 +24,7 @@
       this.attachments = [];
       this.selectedProvider = localStorage.getItem('rcs-t3-provider') || '';
       this.selectedModel = localStorage.getItem('rcs-t3-model') || '';
+      this.selectedEffort = localStorage.getItem('rcs-t3-effort') || 'medium';
       this.providers = [];
       this.recording = false;
       this._speechRec = null;
@@ -68,6 +69,7 @@
       this.micBtn = document.getElementById('btnT3Mic');
       this.providerSelectEl = document.getElementById('t3ProviderSelect');
       this.modelSelectEl = document.getElementById('t3ModelSelect');
+      this.effortSelectEl = document.getElementById('t3EffortSelect');
 
       // Inline Ctrl+I bar (#t3InlineBar)
       this.inlineBarEl = document.getElementById('t3InlineBar');
@@ -115,6 +117,13 @@
           this.selectedModel = this.modelSelectEl.value || '';
           localStorage.setItem('rcs-t3-model', this.selectedModel);
           if (this.selectedProvider) localStorage.setItem(`rcs-t3-model:${this.selectedProvider}`, this.selectedModel);
+        });
+      }
+      if (this.effortSelectEl) {
+        this.effortSelectEl.value = this.selectedEffort || 'medium';
+        this.effortSelectEl.addEventListener('change', () => {
+          this.selectedEffort = this.effortSelectEl.value || 'medium';
+          localStorage.setItem('rcs-t3-effort', this.selectedEffort);
         });
       }
       document.addEventListener('click', (e) => {
@@ -588,6 +597,7 @@
           mode: 'inline-fix',
           provider: this.selectedProvider || '',
           model: this.selectedModel || '',
+          effort: this.selectedEffort || 'medium',
           prompt,
           code: tab?.model?.getValue?.() || '',
           selection,
@@ -684,6 +694,7 @@
           mode: 'chat',
           provider: this.selectedProvider || '',
           model: this.selectedModel || '',
+          effort: this.selectedEffort || 'medium',
           prompt,
           code: tab?.model?.getValue?.() || '',
           selection,
