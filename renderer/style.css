@@ -1865,6 +1865,9 @@ header.titlebar {
   padding: 10px;
   background: var(--bg-chrome);
 }
+.plots-canvas.panning {
+  cursor: grabbing;
+}
 .plot-frame {
   background: #ffffff;
   border: 1px solid var(--border-field);

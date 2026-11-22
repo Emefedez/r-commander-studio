@@ -111,7 +111,7 @@
             { label: t('copilotInlineFix'), accel: 'Ctrl+I', cmd: 'inline-copilot' },
             {
               label: t('copilotChooseHarness'),
-              submenu: [
+              children: [
                 { label: 'Claude Code', cmd: 'set-ai-harness:claude' },
                 { label: 'Antigravity (agy)', cmd: 'set-ai-harness:antigravity' },
                 { label: 'Codex', cmd: 'set-ai-harness:codex' },
@@ -231,7 +231,8 @@
           btn.addEventListener('click', (e) => {
             e.stopPropagation();
             this.closeAll();
-            if (item.cmd) this.onStudioCommand(item.cmd);
+            if (item.cmd === 'new-rmd' && e.shiftKey) this.onStudioCommand('new-rmd-template');
+            else if (item.cmd) this.onStudioCommand(item.cmd);
             else if (item.rcmdrId) this.onRcmdrCommand(item.rcmdrId);
           });
           panel.append(btn);

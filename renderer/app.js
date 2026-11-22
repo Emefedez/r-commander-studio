@@ -1309,8 +1309,18 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
     const frame = document.createElement('div');
     frame.className = 'plot-frame';
-    frame.style.transform = `scale(${state.plotZoom})`;
     frame.innerHTML = state.plots[state.plotIndex];
+    const svgEl = frame.querySelector('svg');
+    if (svgEl) {
+      const vb = svgEl.viewBox?.baseVal;
+      const baseW = (vb && vb.width > 0 ? vb.width : Number(svgEl.getAttribute('width')) || 640);
+      const baseH = (vb && vb.height > 0 ? vb.height : Number(svgEl.getAttribute('height')) || 440);
+      svgEl.style.width = `${Math.round(baseW * state.plotZoom)}px`;
+      svgEl.style.height = `${Math.round(baseH * state.plotZoom)}px`;
+      svgEl.style.maxWidth = 'none';
+    } else {
+      frame.style.transform = `scale(${state.plotZoom})`;
+    }
     frame.addEventListener('click', (e) => {
       if (e.shiftKey) {
         e.preventDefault();
@@ -3469,6 +3479,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
         break;
       }
       case 'new-rmd':
+        createCodeTab({ name: `report-${state.nextTabNum}.Rmd`, content: '', language: 'rmd' });
+        break;
+      case 'new-rmd-template':
         createCodeTab({ name: `report-${state.nextTabNum}.Rmd`, content: DEFAULT_RMD_DOC, language: 'rmd' });
         break;
       case 'open':
@@ -4021,7 +4034,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
   }
 
   // Starter tabs (marked isStarter: true so opening a real file or workspace folder replaces them cleanly!)
-  createCodeTab({ name: 'report.Rmd', content: DEFAULT_RMD_DOC, language: 'rmd', dirty: false, groupIndex: 0, isStarter: true });
+  createCodeTab({ name: 'report.Rmd', content: '', language: 'rmd', dirty: false, groupIndex: 0, isStarter: true });
   createCodeTab({ name: 'analysis.R', content: DEFAULT_R_SCRIPT, language: 'r', dirty: false, groupIndex: 0, isStarter: true });
 
   // --- Wire Main Process Events ---
@@ -4965,6 +4978,33 @@ boxplot(Sepal.Length ~ Species, data = iris,
   };
   bindTerminalContextMenu($('consoleOut'), $('consoleInput'), false);
   bindTerminalContextMenu($('arfOut'), $('arfInput'), true);
+
+  $('plotsCanvas')?.addEventListener('pointerdown', (e) => {
+    // Middle-click (wheel click, button === 1) drag to pan the zoomed plot
+    if (e.button !== 1) return;
+    const canvas = $('plotsCanvas');
+    if (!canvas) return;
+    e.preventDefault();
+    canvas.classList.add('panning');
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startSL = canvas.scrollLeft;
+    const startST = canvas.scrollTop;
+    const onMove = (ev) => {
+      canvas.scrollLeft = startSL - (ev.clientX - startX);
+      canvas.scrollTop = startST - (ev.clientY - startY);
+    };
+    const onUp = () => {
+      canvas.classList.remove('panning');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  });
+  $('plotsCanvas')?.addEventListener('auxclick', (e) => {
+    if (e.button === 1) e.preventDefault();
+  });
 
   $('plotsCanvas')?.addEventListener('contextmenu', (e) => {
     if (!state.plots.length) return;
