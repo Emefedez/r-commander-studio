@@ -223,6 +223,7 @@ function buildAppMenu(lang = mainI18n.getLang()) {
       label: t('menuHelp'),
       submenu: [
         { label: t('rHelpMenu'), click: () => sendToRenderer('menu:command', 'r-help') },
+        { label: t('wizardMenuItem'), click: () => sendToRenderer('menu:command', 'open-setup-wizard') },
         { type: 'separator' },
         ...rcmdrSub('Help'),
         { type: 'separator' },
@@ -649,6 +650,10 @@ function registerIpc() {
     return true;
   });
   ipcMain.handle('lsp:hover', async (_e, { uri, line, character }) => lsp.hover(uri, line, character));
+  ipcMain.handle('lsp:checkPackage', async () => lsp.checkPackage());
+  ipcMain.handle('lsp:installPackage', async (_e, { repos } = {}) =>
+    lsp.installPackage({ repos, onProgress: (line) => sendToRenderer('lsp:installProgress', { line }) })
+  );
   ipcMain.handle('lsp:completion', async (_e, { uri, line, character }) => lsp.completion(uri, line, character));
 
   // --- R Commander Service ---

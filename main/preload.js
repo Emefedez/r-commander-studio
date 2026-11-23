@@ -73,6 +73,9 @@ contextBridge.exposeInMainWorld('studio', {
   lspDidClose: (payload) => ipcRenderer.invoke('lsp:didClose', payload),
   lspHover: (payload) => ipcRenderer.invoke('lsp:hover', payload),
   lspCompletion: (payload) => ipcRenderer.invoke('lsp:completion', payload),
+  lspCheckPackage: () => ipcRenderer.invoke('lsp:checkPackage'),
+  lspInstallPackage: (payload) => ipcRenderer.invoke('lsp:installPackage', payload),
+  onLspInstallProgress: (cb) => subscribe('lsp:installProgress', cb),
 
   // R Commander
   rcmdrGetTree: (lang) => ipcRenderer.invoke('rcmdr:getTree', lang),

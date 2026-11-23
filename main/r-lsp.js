@@ -2,7 +2,7 @@
 
 const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
-const { findRscript } = require('./r-runtime');
+const { findRscript, runRscriptOnce } = require('./r-runtime');
 
 /**
  * Encodes an LSP JSON-RPC payload with proper Content-Length byte framing.
@@ -633,6 +633,87 @@ class RLanguageServer extends EventEmitter {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Reports whether R and the `languageserver` package are available (used by the first-run setup wizard).
+   */
+  async checkPackage() {
+    const bin = this.rscriptPath || findRscript();
+    if (!bin) return { ok: true, rAvailable: false, installed: false, version: null, status: this.status };
+    const res = await runRscriptOnce(
+      [
+        'cat("__RCS_RVER__", paste(R.version$major, R.version$minor, sep = "."), "\\n", sep = "")',
+        'if (requireNamespace("languageserver", quietly = TRUE)) {',
+        '  cat("__RCS_LS__", as.character(utils::packageVersion("languageserver")), "\\n", sep = "")',
+        '}'
+      ].join('\n'),
+      { rscriptPath: bin, timeoutMs: 15000 }
+    );
+    const rVer = /__RCS_RVER__(\S+)/.exec(res.stdout || '');
+    const lsVer = /__RCS_LS__(\S+)/.exec(res.stdout || '');
+    return {
+      ok: true,
+      rAvailable: Boolean(rVer),
+      rVersion: rVer ? rVer[1] : null,
+      installed: Boolean(lsVer),
+      version: lsVer ? lsVer[1] : null,
+      status: this.status
+    };
+  }
+
+  /**
+   * Installs `languageserver` from CRAN into the user library (created if missing), streaming
+   * progress lines through `onProgress`, then restarts the language server so completion works
+   * without relaunching the app.
+   */
+  installPackage({ repos = 'https://cloud.r-project.org', onProgress } = {}) {
+    const bin = this.rscriptPath || findRscript();
+    if (!bin) return Promise.resolve({ ok: false, error: 'Rscript executable not found on PATH.' });
+    const cleanRepos = /^https?:\/\/[^\s"'\\]+$/i.test(String(repos || '')) ? repos : 'https://cloud.r-project.org';
+    const script = [
+      'options(repos = c(CRAN = ' + JSON.stringify(cleanRepos) + '), Ncpus = max(1L, parallel::detectCores() - 1L))',
+      'lib <- .libPaths()[1]',
+      'if (file.access(lib, 2) != 0) {',
+      '  lib <- Sys.getenv("R_LIBS_USER")',
+      '  if (!nzchar(lib)) lib <- file.path(path.expand("~"), "R", "library")',
+      '  dir.create(lib, recursive = TRUE, showWarnings = FALSE)',
+      '  .libPaths(c(lib, .libPaths()))',
+      '}',
+      'cat("Installing languageserver into", lib, "\\n")',
+      'utils::install.packages("languageserver", lib = lib)',
+      'if (!requireNamespace("languageserver", quietly = TRUE)) quit(status = 3L)',
+      'cat("__RCS_LS__", as.character(utils::packageVersion("languageserver")), "\\n", sep = "")'
+    ].join('\n');
+
+    return new Promise((resolve) => {
+      const child = spawn(bin, ['--vanilla', '-e', script], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, LC_ALL: 'C.UTF-8' }
+      });
+      let tail = '';
+      const onChunk = (chunk) => {
+        const text = chunk.toString('utf8');
+        tail = (tail + text).slice(-4000);
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        if (lines.length && onProgress) onProgress(lines[lines.length - 1]);
+      };
+      child.stdout.on('data', onChunk);
+      child.stderr.on('data', onChunk);
+      child.on('error', (err) => resolve({ ok: false, error: err.message }));
+      child.on('exit', async (code) => {
+        const ver = /__RCS_LS__(\S+)/.exec(tail);
+        if (code === 0 && ver) {
+          if (!this._initialized && !this._proc) {
+            this._available = null;
+            this.start().catch(() => {});
+          }
+          resolve({ ok: true, version: ver[1] });
+        } else {
+          resolve({ ok: false, error: tail.trim().split(/\r?\n/).slice(-6).join('\n') || `Rscript exited (code ${code})` });
+        }
+      });
+    });
   }
 
   stop() {
