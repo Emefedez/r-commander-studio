@@ -76,7 +76,7 @@ async function writeIfChanged(file, content) {
 
 function isStudioAppImage(appImage) {
   if (!appImage || !path.isAbsolute(appImage) || !fs.existsSync(appImage)) return false;
-  return /r[-_\s]*commander[-_\s]*studio/i.test(path.basename(appImage));
+  return /r[-_.\s]*commander[-_.\s]*studio/i.test(path.basename(appImage));
 }
 
 async function ensureLocalLauncher({ appImage = process.env.APPIMAGE, appRoot = path.join(__dirname, '..'), home = os.homedir() } = {}) {

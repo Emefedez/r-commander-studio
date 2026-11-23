@@ -105,6 +105,8 @@ npm run install-desktop  # Install desktop launcher & R file associations on Lin
 
 On Linux, launching the `.AppImage` or choosing **Help → Install Desktop Shortcut & File Associations** automatically registers `R Commander Studio` in your application launcher and associates `.R`, `.Rmd`, `.qmd`, `.RData`, `.rda`, and `.rds` files.
 
+On macOS the app is ad-hoc signed but not notarized (no Apple Developer ID yet), so the first launch is blocked as coming from an unidentified developer. Open it once via **System Settings → Privacy & Security → Open Anyway**, or run `xattr -dr com.apple.quarantine "/Applications/R Commander Studio.app"`.
+
 ---
 
 ## Related Projects

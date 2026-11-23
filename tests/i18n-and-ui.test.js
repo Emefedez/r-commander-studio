@@ -279,3 +279,92 @@ test('workbench layout: placeSidebar docks and orders sidebars, and survives a s
   assert.deepEqual(restored.sidebarOrder, layout.sidebarOrder);
   assert.equal(restored.sidebars.explorer.dock, 'right');
 });
+
+test('Auto-updater replaces the running AppImage in place (any file name, verified checksum)', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { createHash } = require('node:crypto');
+  const updater = require('../main/updater');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rcs-upd-'));
+  const appImage = path.join(dir, 'my-renamed.AppImage');
+  fs.writeFileSync(appImage, 'old build', { mode: 0o755 });
+
+  // A renamed AppImage is still ours when our executable runs from its mount (APPDIR).
+  assert.equal(updater.resolveAppImage({ APPIMAGE: appImage, APPDIR: '/tmp/.mount_abc' }, '/tmp/.mount_abc/r-commander-studio'), appImage);
+  assert.equal(updater.resolveAppImage({ APPIMAGE: appImage, APPDIR: '/tmp/.mount_abc' }, '/usr/bin/other'), '');
+  assert.equal(updater.resolveAppImage({}, '/x'), '');
+
+  // GitHub renames spaces to dots in asset names; SHA256SUMS.txt keeps the spaces.
+  const sums = updater.parseSums('aa'.repeat(32) + '  R Commander Studio-0.2.0-linux-x86_64.AppImage\n');
+  assert.equal(updater.expectedSum(sums, 'R.Commander.Studio-0.2.0-linux-x86_64.AppImage'), 'aa'.repeat(32));
+
+  const payload = Buffer.from('new build 0.2.0');
+  const sum = createHash('sha256').update(payload).digest('hex');
+  const asset = 'R.Commander.Studio-0.2.0-linux-x86_64.AppImage';
+  const release = {
+    tag_name: 'v0.2.0',
+    html_url: 'https://example.invalid/r',
+    assets: [
+      { name: asset, browser_download_url: 'https://dl/app', size: payload.length },
+      { name: 'SHA256SUMS.txt', browser_download_url: 'https://dl/sums' }
+    ]
+  };
+  const fakeFetch = async (url) => {
+    if (url.includes('api.github.com')) return { ok: true, json: async () => [release] };
+    if (url === 'https://dl/sums') return { ok: true, text: async () => `${sum}  R Commander Studio-0.2.0-linux-x86_64.AppImage\n` };
+    if (url === 'https://dl/app') {
+      return {
+        ok: true,
+        headers: { get: () => String(payload.length) },
+        body: (async function* () { yield payload.subarray(0, 5); yield payload.subarray(5); })()
+      };
+    }
+    throw new Error('unexpected ' + url);
+  };
+  const u = updater.createUpdater({
+    app: { getVersion: () => '0.1.9', getPath: () => dir },
+    fetch: fakeFetch,
+    stateFile: path.join(dir, 'state.json'),
+    appImage,
+    platform: 'linux',
+    arch: 'x64'
+  });
+  const info = await u.check({ manual: true });
+  assert.equal(info.install, 'appimage');
+  const seen = [];
+  const res = await u.install((p) => seen.push(p));
+  assert.equal(res.version, '0.2.0');
+  assert.equal(fs.readFileSync(appImage, 'utf8'), 'new build 0.2.0');
+  assert.equal(fs.readFileSync(appImage + '.previous', 'utf8'), 'old build');
+  assert.ok(fs.statSync(appImage).mode & 0o100);
+  assert.equal(seen.at(-1), 1);
+
+  // A tampered download is rejected and the current AppImage is left untouched.
+  fs.writeFileSync(appImage, 'current', { mode: 0o755 });
+  const bad = updater.createUpdater({
+    app: { getVersion: () => '0.1.9', getPath: () => dir },
+    fetch: async (url) => (url === 'https://dl/sums' ? { ok: true, text: async () => `${'0'.repeat(64)}  R Commander Studio-0.2.0-linux-x86_64.AppImage\n` } : fakeFetch(url)),
+    stateFile: path.join(dir, 'state2.json'),
+    appImage,
+    platform: 'linux',
+    arch: 'x64'
+  });
+  await bad.check({ manual: true });
+  await assert.rejects(() => bad.install(), /checksum/);
+  assert.equal(fs.readFileSync(appImage, 'utf8'), 'current');
+  assert.equal(fs.existsSync(appImage + '.download'), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('Auto-updater recognises the AppImage under the dotted name GitHub gives it', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rcs-name-'));
+  const file = path.join(dir, 'R.Commander.Studio-0.1.9-linux-x86_64.AppImage');
+  fs.writeFileSync(file, 'x');
+  assert.equal(require('../main/updater').resolveAppImage({ APPIMAGE: file }, '/elsewhere'), file);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
