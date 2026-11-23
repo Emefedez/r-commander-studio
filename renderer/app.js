@@ -6,6 +6,14 @@
   const { FileGroupsModel } = window.StudioFileGroups;
   const { WorkbenchLayoutModel } = window.StudioWorkbenchLayout;
   const { loadSettings, saveSettings, StudioSettingsModal } = window.StudioSettings;
+  const { StudioSetupWizard, isSetupComplete, markSetupComplete } = window.StudioSetupWizard;
+
+  // First-run detection: existing installs (saved language / settings / session from an earlier
+  // version) count as already set up, so the wizard only greets brand-new users.
+  if (!isSetupComplete()) {
+    const hadPriorLaunch = ['rcs-lang', 'rcs-settings', 'rcs-last-session'].some((k) => localStorage.getItem(k) !== null);
+    if (hadPriorLaunch) markSetupComplete({ migrated: true });
+  }
 
   const DEFAULT_R_SCRIPT = `# R Commander Studio — Quick Start
 data(mtcars)
@@ -4150,6 +4158,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
       case 'open-settings':
         settingsModal.open();
         break;
+      case 'open-setup-wizard':
+        setupWizard.open();
+        break;
       case 'r-help':
         openDocsForCursor();
         break;
@@ -4257,6 +4268,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
       cmdEntry('toggle-theme', 'toggleTheme'),
       cmdEntry('switch-language', 'switchLanguage'),
       cmdEntry('open-settings', 'openSettings', 'Ctrl+,'),
+      cmdEntry('open-setup-wizard', 'wizardMenuItem'),
       cmdEntry('toggle-copilot', 'copilotToggle', 'Ctrl+Alt+B'),
       cmdEntry('inline-copilot', 'copilotInlineFix', 'Ctrl+I'),
       cmdEntry('install-t3code', 'copilotInstallBtn'),
@@ -4425,17 +4437,33 @@ boxplot(Sepal.Length ~ Species, data = iris,
     onStudioCommand: handleStudioCommand,
     onRcmdrCommand: triggerRcmdrCommand
   });
+  function commitSettings(next, toastMsg) {
+    state.settings = next;
+    applyThemePreset(next.themePreset, next.themeOverrides);
+    applySettingsUI();
+    if (toastMsg) showToast(toastMsg);
+  }
+
   const settingsModal = new StudioSettingsModal({
     getSettings: () => state.settings,
-    onSave: (next) => {
-      state.settings = next;
-      applyThemePreset(next.themePreset, next.themeOverrides);
-      applySettingsUI();
-      showToast(t('settingsSavedToast'));
-    },
+    onSave: (next) => commitSettings(next, t('settingsSavedToast')),
     onPreviewTheme: (presetId, overrides) => applyThemePreset(presetId, overrides),
     getLang,
     onSetLang: switchLanguage
+  });
+
+  const setupWizard = new StudioSetupWizard({
+    getSettings: () => state.settings,
+    onSave: (next, { skipped } = {}) => commitSettings(next, skipped ? t('wizardSkippedToast') : ''),
+    onPreviewTheme: (presetId, overrides) => applyThemePreset(presetId, overrides),
+    getLang,
+    onSetLang: switchLanguage,
+    onSetAiProvider: (id) => {
+      if (!copilot) return;
+      copilot.selectedProvider = id;
+      copilot.refreshProviders?.();
+    },
+    getVersion: () => state.appVersion || ''
   });
 
   for (let g = 0; g < 2; g++) {
@@ -5988,4 +6016,10 @@ boxplot(Sepal.Length ~ Species, data = iris,
     t('consoleReady', state.rVersion ? `R ${state.rVersion}` : t('statusRNotFound'), init.rcmdrCount) + '\n',
     'console-line-meta'
   );
+
+  // First launch: open the Setup Wizard once the workbench is fully rendered.
+  if (!isSetupComplete()) {
+    window.studio?.buildInfo?.().then((b) => { state.appVersion = b?.version || ''; }).catch(() => {});
+    setupWizard.open();
+  }
 })();

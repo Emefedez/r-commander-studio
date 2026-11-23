@@ -171,6 +171,7 @@
           label: t('menuHelp'),
           items: [
             { label: t('guideBtnTitle'), cmd: 'open-guide' },
+            { label: t('wizardMenuItem'), cmd: 'open-setup-wizard' },
             { label: t('rHelpMenu'), accel: 'F1', cmd: 'r-help' },
             { sep: true },
             ...rcmdrSub('Help'),

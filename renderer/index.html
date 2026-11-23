@@ -458,6 +458,25 @@
     </div>
   </div>
 
+  <!-- First-run Setup Wizard (Language, Theme, LSP, AI (Optional), Preferences) -->
+  <div id="wizardBackdrop" class="modal-backdrop wizard-backdrop" hidden>
+    <div class="rcmdr-modal wizard-modal" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+      <div class="wizard-head">
+        <h2 id="wizardTitle" class="wizard-title">Welcome</h2>
+        <div id="wizardSub" class="wizard-sub"></div>
+        <nav id="wizardSteps" class="wizard-steps"></nav>
+      </div>
+      <div id="wizardBody" class="rcmdr-modal-body wizard-body"></div>
+      <div class="rcmdr-modal-foot">
+        <button type="button" id="wizardSkip" class="dlg-btn wizard-skip">Skip setup</button>
+        <span class="spacer"></span>
+        <span id="wizardCounter" class="wizard-counter"></span>
+        <button type="button" id="wizardBack" class="dlg-btn">Back</button>
+        <button type="button" id="wizardNext" class="dlg-btn primary">Next</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Floating (...) Output Actions Menu, Context Menu & Document Picker Modal -->
   <div id="outputActionMenu" class="output-action-menu" hidden></div>
   <div id="studioContextMenu" class="output-action-menu studio-context-menu" hidden></div>
@@ -562,6 +581,7 @@
   <script src="command-palette.js"></script>
   <script src="table-viewer.js"></script>
   <script src="settings-modal.js"></script>
+  <script src="setup-wizard.js"></script>
   <script src="dialog-modal.js"></script>
   <script src="t3-copilot.js"></script>
   <script src="app.js"></script>
