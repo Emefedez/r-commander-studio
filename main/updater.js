@@ -77,14 +77,49 @@ function parseSums(text) {
 }
 
 function isStudioAppImage(p) {
-  return Boolean(p && /r[-_\s]*commander[-_\s]*studio/i.test(path.basename(String(p))));
+  return Boolean(p && /r[-_.\s]*commander[-_.\s]*studio/i.test(path.basename(String(p))));
+}
+
+// The AppImage this process was started from. The AppImage runtime sets APPIMAGE (the .AppImage file)
+// and APPDIR (its mount point); when our own executable lives inside APPDIR, APPIMAGE is ours no
+// matter what the user renamed the file to (Gear Lever, AppImageLauncher, ~/Applications/rcs.AppImage...).
+function resolveAppImage(env = process.env, execPath = process.execPath) {
+  const file = env.APPIMAGE;
+  if (!file || !path.isAbsolute(file)) return '';
+  try {
+    if (!fs.statSync(file).isFile()) return '';
+  } catch {
+    return '';
+  }
+  const dir = env.APPDIR;
+  const insideMount = Boolean(dir && execPath && path.resolve(execPath).startsWith(path.resolve(dir) + path.sep));
+  return insideMount || isStudioAppImage(file) ? file : '';
+}
+
+function canReplace(file) {
+  if (!file) return false;
+  try {
+    fs.accessSync(path.dirname(file), fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// GitHub turns spaces in uploaded asset names into dots, while SHA256SUMS.txt is generated from the
+// original file names ("R Commander Studio-0.1.9-..."), so compare both spellings.
+function expectedSum(sums, name) {
+  const norm = (n) => String(n).replace(/[\s.]+/g, '.');
+  if (sums.has(name)) return sums.get(name);
+  for (const [file, sum] of sums) if (norm(file) === norm(name)) return sum;
+  return null;
 }
 
 function createUpdater({
   app,
   fetch = globalThis.fetch,
   stateFile,
-  appImage = isStudioAppImage(process.env.APPIMAGE) ? process.env.APPIMAGE : '',
+  appImage = resolveAppImage(),
   platform = process.platform,
   arch = process.arch,
   now = () => Date.now(),
@@ -201,7 +236,8 @@ function createUpdater({
       assetName: asset?.name || null,
       assetUrl: asset?.browser_download_url || release.html_url,
       skipped: !manual && s.skip === version,
-      install: platform === 'linux' && Boolean(appImage) && Boolean(asset) && /\.AppImage$/i.test(asset.name) ? 'appimage' : 'page'
+      install:
+        platform === 'linux' && canReplace(appImage) && Boolean(asset) && /\.AppImage$/i.test(asset.name) ? 'appimage' : 'page'
     };
   }
 
@@ -216,37 +252,49 @@ function createUpdater({
       const sumsRes = await fetch(sumsAsset.browser_download_url, {
         headers: { 'User-Agent': 'R-Commander-Studio' }
       });
-      if (sumsRes.ok) {
-        const sums = parseSums(await sumsRes.text());
-        expected = sums.get(asset.name) || null;
-      }
+      if (sumsRes.ok) expected = expectedSum(parseSums(await sumsRes.text()), asset.name);
     }
     const response = await fetch(asset.browser_download_url, {
       headers: { 'User-Agent': 'R-Commander-Studio' }
     });
     if (!response.ok || !response.body) throw new Error(`Download failed (${response.status}).`);
     const total = Number(response.headers.get('content-length')) || asset.size || 0;
-    const chunks = [];
-    let received = 0;
-    for await (const chunk of response.body) {
-      chunks.push(chunk);
-      received += chunk.length;
-      progress(total ? received / total : 0);
-    }
-    const bytes = Buffer.concat(chunks);
-    if (expected && createHash('sha256').update(bytes).digest('hex') !== expected) {
-      throw new Error('Downloaded file checksum does not match SHA256SUMS.txt; aborting update.');
-    }
     const next = `${appImage}.download`;
     const previous = `${appImage}.previous`;
-    await fsp.writeFile(next, bytes);
+    const hash = createHash('sha256');
+    let received = 0;
+    const out = await fsp.open(next, 'w', 0o755);
+    try {
+      for await (const chunk of response.body) {
+        hash.update(chunk);
+        await out.write(chunk);
+        received += chunk.length;
+        progress(total ? received / total : 0);
+      }
+    } catch (err) {
+      await out.close().catch(() => {});
+      await fsp.rm(next, { force: true });
+      throw err;
+    }
+    await out.close();
+    if (expected && hash.digest('hex') !== expected) {
+      await fsp.rm(next, { force: true });
+      throw new Error('Downloaded file checksum does not match SHA256SUMS.txt; aborting update.');
+    }
     const st = fs.existsSync(appImage) ? await fsp.stat(appImage) : { mode: 0o755 };
-    await fsp.chmod(next, st.mode | 0o755);
+    await fsp.chmod(next, (st.mode & 0o7777) | 0o755);
+    // Swap: current -> .previous, download -> current. The running copy keeps working from its
+    // FUSE mount (the inode stays alive as .previous), so the restart picks up the new file.
     await fsp.rm(previous, { force: true });
     await fsp.rename(appImage, previous);
-    await fsp.rename(next, appImage);
+    try {
+      await fsp.rename(next, appImage);
+    } catch (err) {
+      await fsp.rename(previous, appImage).catch(() => {});
+      throw err;
+    }
     await remember({ available: null, installed: release.tag_name });
-    return { version: release.tag_name.replace(/^v/i, '') };
+    return { version: release.tag_name.replace(/^v/i, ''), path: appImage };
   }
 
   return {
@@ -305,5 +353,7 @@ module.exports = {
   latestRelease,
   pickAsset,
   parseSums,
+  expectedSum,
+  resolveAppImage,
   createUpdater
 };

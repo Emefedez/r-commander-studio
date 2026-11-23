@@ -368,6 +368,7 @@
     updateAvailablePrompt: 'R Commander Studio v{0} is available (current: v{1}). Download and install now?',
     updateInstalling: 'Downloading and verifying v{0}...',
     updateInstalledRestart: 'Updated to v{0}. Restart R Commander Studio now?',
+    updateInstalledRestarting: 'Updated to v{0}. Restarting R Commander Studio...',
     desktopInstalledToast: 'Installed desktop shortcut and R file associations.',
 
     // Markdown Viewer & Output Hover (...) Actions
@@ -837,6 +838,7 @@
     updateAvailablePrompt: 'R Commander Studio v{0} está disponible (actual: v{1}). ¿Descargar e instalar ahora?',
     updateInstalling: 'Descargando y verificando v{0}...',
     updateInstalledRestart: 'Actualizado a v{0}. ¿Reiniciar R Commander Studio ahora?',
+    updateInstalledRestarting: 'Actualizado a v{0}. Reiniciando R Commander Studio...',
     desktopInstalledToast: 'Acceso directo y asociaciones de archivos R instalados en el sistema.',
 
     // Markdown Viewer & Output Hover (...) Actions

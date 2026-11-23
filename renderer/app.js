@@ -4219,10 +4219,22 @@ boxplot(Sepal.Length ~ Species, data = iris,
       if (!yes) return;
       if (info.install === 'appimage') {
         showToast(t('updateInstalling', info.version));
-        const installed = await window.studio.updaterInstall();
-        if (window.confirm(t('updateInstalledRestart', installed.version))) {
-          await window.studio.updaterRestart();
+        const stopProgress = window.studio.onUpdaterProgress?.((pct) => {
+          if (pct > 0) showToast(`${t('updateInstalling', info.version)} ${Math.round(pct * 100)}%`);
+        });
+        let installed;
+        try {
+          installed = await window.studio.updaterInstall();
+        } catch (err) {
+          showToast(err.message || 'Update failed', 'error');
+          await window.studio.openExternal(info.assetUrl || info.page || 'https://github.com/Emefedez/r-commander-studio/releases/latest');
+          return;
+        } finally {
+          if (typeof stopProgress === 'function') stopProgress();
         }
+        // The AppImage was replaced in place: relaunch straight into the new version.
+        showToast(t('updateInstalledRestarting', installed.version));
+        setTimeout(() => window.studio.updaterRestart(), 1200);
       } else {
         await window.studio.openExternal(info.assetUrl || info.page || 'https://github.com/Emefedez/r-commander-studio/releases/latest');
       }
