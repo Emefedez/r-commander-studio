@@ -47,7 +47,7 @@
     truncate: `<path d="M2.5 4h11M2.5 7.5h7M2.5 11h11" ${S}/><circle cx="11.5" cy="7.5" r="0.8" fill="currentColor"/><circle cx="13.5" cy="7.5" r="0.8" fill="currentColor"/>`,
     'panel-bottom': `<rect x="2" y="2.5" width="12" height="11" ${S}/><rect x="2" y="9.5" width="12" height="4" fill="currentColor" fill-opacity="0.35"/>`,
     'panel-right': `<rect x="2" y="2.5" width="12" height="11" ${S}/><rect x="10" y="2.5" width="4" height="11" fill="currentColor" fill-opacity="0.35"/>`,
-    settings: `<circle cx="8" cy="8" r="2.4" ${S}/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1" ${S}/>`,
+    settings: `<path d="M12.78 6.52L14.5 6.88v2.24l-1.72.36-.36.85.97 1.48-1.58 1.58-1.48-.97-.85.36-.36 1.72H6.88l-.36-1.72-.85-.36-1.48.97-1.58-1.58.97-1.48-.36-.85-1.72-.36V6.88l1.72-.36.36-.85-.97-1.48 1.58-1.58 1.48.97.85-.36.36-1.72h2.24l.36 1.72.85.36 1.48-.97 1.58 1.58-.97 1.48z" ${S}/><circle cx="8" cy="8" r="2" ${S}/>`,
     close: `<path d="M4 4l8 8M12 4l-8 8" ${S}/>`,
     plus: `<path d="M8 3v10M3 8h10" ${S}/>`,
     'chevron-right': `<polyline points="6,3.5 10.5,8 6,12.5" ${S}/>`,
