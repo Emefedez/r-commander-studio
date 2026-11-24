@@ -997,6 +997,11 @@ async function shutdownServices() {
   } catch {
     // ignore
   }
+  try {
+    if (t3code) await t3code.stopBackendIfOwned();
+  } catch {
+    // ignore
+  }
 }
 
 const gotLock = app.requestSingleInstanceLock();

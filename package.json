@@ -1,6 +1,6 @@
 {
   "name": "r-commander-studio",
-  "version": "0.1.10",
+  "version": "0.1.12",
   "description": "Standalone VS Code-style R + R Markdown IDE with Monaco Editor, 371 R Commander dialogs, R LSP + hover docs, arf & R terminals, interactive Data Viewer, Markdown Viewer, and NoteComplete Bridge",
   "author": "Emefedez <https://github.com/Emefedez>",
   "homepage": "https://github.com/Emefedez/r-commander-studio",
