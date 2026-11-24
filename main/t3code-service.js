@@ -504,6 +504,28 @@ class T3CodeService {
   }
 
   /**
+   * Stops the T3 Code backend on app quit, but only if this app started it. A backend that was
+   * already running (e.g. the T3 Code desktop app's own server) is left alone, so the desktop app
+   * is never blocked by a leftover headless server owning the T3 home.
+   */
+  async stopBackendIfOwned() {
+    const how = this._startedBy;
+    this._startedBy = null;
+    if (!how) return { stopped: false };
+    try {
+      if (how === 'systemd') {
+        await execFileAsync('systemctl', ['--user', 'stop', 't3code-backend.service'], { timeoutMs: 8000 });
+      } else if (how === 'spawn' && this._daemonProc && this._daemonProc.pid) {
+        process.kill(this._daemonProc.pid, 'SIGTERM');
+      }
+      this._daemonProc = null;
+      return { stopped: true, via: how };
+    } catch {
+      return { stopped: false };
+    }
+  }
+
+  /**
    * Starts the T3 Code headless backend on 127.0.0.1:3773 if installed.
    */
   async startBackend() {
@@ -518,6 +540,7 @@ class T3CodeService {
       await new Promise((r) => setTimeout(r, 900));
       const afterSystemd = await this.probeHttpBackend();
       if (afterSystemd.running) {
+        this._startedBy = 'systemd';
         return { ok: true, startedVia: 'systemd', url: this.baseUrl, environment: afterSystemd.environment };
       }
     }
@@ -562,6 +585,7 @@ class T3CodeService {
         await new Promise((r) => setTimeout(r, 400));
         const check = await this.probeHttpBackend();
         if (check.running) {
+          this._startedBy = 'spawn';
           return { ok: true, startedVia: install.source, url: this.baseUrl, environment: check.environment };
         }
       }
