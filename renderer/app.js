@@ -90,6 +90,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     monaco: null,
     editors: [null, null],
     tableViewers: [null, null],
+    rnoteViewers: [null, null],
     tabs: [],
     closedTabs: [],
     activeTabByGroup: [null, null],
@@ -171,6 +172,10 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
   function isDelimitedExt(filename = '') {
     return /\.(csv|tsv)$/i.test(filename);
+  }
+
+  function isRnoteExt(filename = '') {
+    return /\.rnote$/i.test(filename);
   }
 
   // --- File Groups Persistence ---
@@ -1015,6 +1020,8 @@ boxplot(Sepal.Length ~ Species, data = iris,
       const tab = activeTabInGroup(g);
       if (tab?.kind === 'table' && state.tableViewers[g]) {
         state.tableViewers[g].render();
+      } else if (tab?.kind === 'rnote' && state.rnoteViewers[g]) {
+        state.rnoteViewers[g].render();
       }
     }
     if (state.previewOpen && state.previewMode === 'live') renderLivePreview();
@@ -2234,7 +2241,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     $('editorGroup0').classList.toggle('focused', state.focusedGroup === 0);
     $('editorGroup1').classList.toggle('focused', state.focusedGroup === 1);
     const tab = activeTab();
-    if (tab) $('statusLang').textContent = tab.kind === 'table' ? 'TABLE' : tab.language.toUpperCase();
+    if (tab) $('statusLang').textContent = tab.kind === 'rnote' ? 'RNOTE' : tab.kind === 'table' ? 'TABLE' : tab.language.toUpperCase();
     renderFileGroupsPanel();
   }
 
@@ -2303,6 +2310,7 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const tab = activeTabInGroup(g);
     const edHost = $(`editorHost${g}`);
     const tblHost = $(`tableHost${g}`);
+    const rnHost = $(`rnoteHost${g}`);
     const emptyHost = $(`emptyHost${g}`);
     const bc = $(`breadcrumb${g}`);
 
@@ -2310,22 +2318,31 @@ boxplot(Sepal.Length ~ Species, data = iris,
       bc.textContent = '';
       edHost.hidden = true;
       tblHost.hidden = true;
+      if (rnHost) rnHost.hidden = true;
       emptyHost.hidden = false;
       emptyHost.textContent = t('emptyGroupHint');
       return;
     }
 
-    const iconName = tab.kind === 'table' ? 'table' : tab.language === 'r' ? 'r-logo' : 'file';
-    bc.innerHTML = `${svg(iconName, { size: 12, color: 'var(--accent-cyan)' })}<span></span>`;
+    const iconName = tab.kind === 'rnote' ? 'rnote' : tab.kind === 'table' ? 'table' : tab.language === 'r' ? 'r-logo' : 'file';
+    const iconColor = tab.kind === 'rnote' ? 'var(--accent-pink)' : 'var(--accent-cyan)';
+    bc.innerHTML = `${svg(iconName, { size: 12, color: iconColor })}<span></span>`;
     bc.querySelector('span').textContent = tab.filePath || tab.name;
 
     emptyHost.hidden = true;
     if (tab.kind === 'table') {
       edHost.hidden = true;
+      if (rnHost) rnHost.hidden = true;
       tblHost.hidden = false;
       state.tableViewers[g]?.mount(tab);
+    } else if (tab.kind === 'rnote') {
+      edHost.hidden = true;
+      tblHost.hidden = true;
+      if (rnHost) rnHost.hidden = false;
+      state.rnoteViewers[g]?.mount(tab);
     } else {
       tblHost.hidden = true;
+      if (rnHost) rnHost.hidden = true;
       edHost.hidden = false;
       const ed = state.editors[g];
       if (ed) {
@@ -2493,6 +2510,31 @@ boxplot(Sepal.Length ~ Species, data = iris,
     return tab;
   }
 
+  function openRnoteTab({ name, filePath = null, groupIndex = null } = {}) {
+    if (filePath) {
+      const existing = state.tabs.find((x) => x.kind === 'rnote' && x.filePath === filePath);
+      if (existing) {
+        activateTab(existing.id);
+        return existing;
+      }
+    }
+    const g = groupIndex !== null ? groupIndex : state.focusedGroup;
+    const id = `tab-${state.nextTabNum++}`;
+    const tab = {
+      id,
+      kind: 'rnote',
+      groupIndex: g,
+      name: name || (filePath ? filePath.split(/[\\/]/).pop() : 'note.rnote'),
+      filePath,
+      language: 'rnote',
+      dirty: false,
+      rnoteState: null
+    };
+    state.tabs.push(tab);
+    activateTab(id);
+    return tab;
+  }
+
   function activateTab(id) {
     const next = state.tabs.find((x) => x.id === id);
     if (!next) return;
@@ -2576,8 +2618,8 @@ boxplot(Sepal.Length ~ Species, data = iris,
         $('editorGroup1')?.classList.remove('tab-drop-highlight');
       });
 
-      const icoName = tab.kind === 'table' ? 'table' : tab.language === 'r' ? 'r-logo' : 'file';
-      const icoColor = tab.kind === 'table' ? 'var(--accent-green)' : tab.language === 'rmd' ? 'var(--accent-purple)' : 'var(--accent-cyan)';
+      const icoName = tab.kind === 'rnote' ? 'rnote' : tab.kind === 'table' ? 'table' : tab.language === 'r' ? 'r-logo' : 'file';
+      const icoColor = tab.kind === 'rnote' ? 'var(--accent-pink)' : tab.kind === 'table' ? 'var(--accent-green)' : tab.language === 'rmd' ? 'var(--accent-purple)' : 'var(--accent-cyan)';
       const icoSpan = document.createElement('span');
       icoSpan.className = 'ico';
       icoSpan.innerHTML = svg(icoName, { size: 13, color: icoColor });
@@ -2987,11 +3029,12 @@ boxplot(Sepal.Length ~ Species, data = iris,
           row.className = 'fs-row';
           row.style.paddingLeft = `${20 + depth * 12}px`;
           const ext = (node.name.split('.').pop() || '').toUpperCase();
-          const fIco = isDataBinaryExt(node.name) ? 'database' : isDelimitedExt(node.name) ? 'table' : 'file';
+          const fIco = isRnoteExt(node.name) ? 'rnote' : isDataBinaryExt(node.name) ? 'database' : isDelimitedExt(node.name) ? 'table' : 'file';
+          const fColor = isRnoteExt(node.name) ? 'var(--accent-pink)' : 'var(--fg-muted)';
           row.innerHTML =
-            `<span class="ico">${svg(fIco, { size: 13, color: 'var(--fg-muted)' })}</span>` +
+            `<span class="ico">${svg(fIco, { size: 13, color: fColor })}</span>` +
             `<span class="fs-row-name"></span>` +
-            (isDataBinaryExt(node.name) || isDelimitedExt(node.name) ? `<span class="fs-ext-tag">${ext}</span>` : '') +
+            (isRnoteExt(node.name) || isDataBinaryExt(node.name) || isDelimitedExt(node.name) ? `<span class="fs-ext-tag">${ext}</span>` : '') +
             `<span class="fs-row-actions">` +
             `<button type="button" class="icon-btn fs-act-ren" title="${t('renamePrompt')}">${svg('edit', { size: 12 })}</button>` +
             `<button type="button" class="icon-btn fs-act-del" title="${t('deleteConfirm', node.name)}">${svg('clear', { size: 12 })}</button>` +
@@ -3077,13 +3120,20 @@ boxplot(Sepal.Length ~ Species, data = iris,
 
   async function openPathSmart(filePath, forceCode = false) {
     if (!filePath) return;
+    if (!forceCode && isRnoteExt(filePath)) {
+      const name = filePath.split(/[\\/]/).pop() || 'note.rnote';
+      openRnoteTab({ name, filePath });
+      return;
+    }
     if (!forceCode && isDataBinaryExt(filePath)) {
       await loadDataFileIntoR(filePath);
       return;
     }
     const file = await window.studio.openPath(filePath);
     if (!file) return;
-    if (!forceCode && isDelimitedExt(file.name)) {
+    if (!forceCode && (file.isRnote || isRnoteExt(file.name))) {
+      openRnoteTab({ name: file.name, filePath: file.filePath });
+    } else if (!forceCode && isDelimitedExt(file.name)) {
       openCsvTableTab({ name: file.name, filePath: file.filePath, rawText: file.content });
     } else {
       createCodeTab({ name: file.name, filePath: file.filePath, content: file.content, dirty: false });
@@ -3870,9 +3920,19 @@ boxplot(Sepal.Length ~ Species, data = iris,
     const files = await window.studio.openFile({ defaultDir: state.workspaceRoot || undefined });
     if (!files || !files.length) return;
     for (const file of files) {
-      if (file.isBinaryData) await loadDataFileIntoR(file.filePath);
+      if (file.isRnote || isRnoteExt(file.name)) openRnoteTab({ name: file.name, filePath: file.filePath });
+      else if (file.isBinaryData) await loadDataFileIntoR(file.filePath);
       else if (isDelimitedExt(file.name)) openCsvTableTab({ name: file.name, filePath: file.filePath, rawText: file.content });
       else createCodeTab({ name: file.name, filePath: file.filePath, content: file.content, dirty: false });
+    }
+  }
+
+  async function importRnoteAction() {
+    const paths = await window.studio.openRnoteDialog?.({ defaultDir: state.workspaceRoot || undefined });
+    if (!paths || !paths.length) return;
+    for (const filePath of paths) {
+      const name = filePath.split(/[\\/]/).pop() || 'note.rnote';
+      openRnoteTab({ name, filePath });
     }
   }
 
@@ -3909,6 +3969,11 @@ boxplot(Sepal.Length ~ Species, data = iris,
       const tv = state.tableViewers[tab.groupIndex];
       if (tab.tableConfig.kind === 'csv') await tv?._saveCsvFile();
       else await tv?._exportCsv();
+      return;
+    }
+    if (tab.kind === 'rnote') {
+      if (forceAs) await state.rnoteViewers[tab.groupIndex]?.exportPng();
+      else showToast(t('rnoteReadOnlyHint'));
       return;
     }
     const content = tab.model.getValue();
@@ -4016,6 +4081,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
         if (picked) await loadDataFileIntoR(picked);
         break;
       }
+      case 'import-rnote':
+        await importRnoteAction();
+        break;
       case 'save':
         await saveFileAction(false);
         break;
@@ -4503,6 +4571,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
           showToast(t('toastImportedToR', stem));
         }
       }
+    });
+    state.rnoteViewers[g] = new window.StudioRnoteViewer($(`rnoteHost${g}`), {
+      onToast: showToast
     });
     $(`editorGroup${g}`).addEventListener('mousedown', () => setFocusedGroup(g));
   }

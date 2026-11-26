@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('studio', {
   openFile: (payload) => ipcRenderer.invoke('file:open', payload),
   openPath: (filePath) => ipcRenderer.invoke('file:openPath', filePath),
   openDataFileDialog: () => ipcRenderer.invoke('file:openDataFileDialog'),
+  openRnoteDialog: (payload) => ipcRenderer.invoke('file:openRnoteDialog', payload),
+  loadRnote: (filePath) => ipcRenderer.invoke('rnote:load', filePath),
   saveFile: (payload) => ipcRenderer.invoke('file:save', payload),
   saveFileAs: (payload) => ipcRenderer.invoke('file:saveAs', payload),
   saveSvg: (payload) => ipcRenderer.invoke('file:saveSvg', payload),

@@ -76,6 +76,7 @@
             { label: t('openFolder'), accel: 'Ctrl+Shift+O', cmd: 'open-folder' },
             { label: t('loadWorkspace'), cmd: 'load-workspace' },
             { label: t('loadDatasetFile'), cmd: 'load-dataset-file' },
+            { label: t('importRnoteFile'), cmd: 'import-rnote' },
             { sep: true },
             { label: t('save'), accel: 'Ctrl+S', cmd: 'save' },
             { label: t('saveAs'), accel: 'Ctrl+Shift+S', cmd: 'save-as' },

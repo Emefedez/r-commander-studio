@@ -474,7 +474,23 @@
     wizardDoneGithub: 'More of my projects on GitHub',
     wizardStepPrefs: 'Preferences',
     wizardPrefsHeading: 'General preferences',
-    wizardPrefsHint: 'Sensible defaults are already set. All of these are also in Settings.'
+    wizardPrefsHint: 'Sensible defaults are already set. All of these are also in Settings.',
+
+    // Rnote Viewer & Import
+    importRnoteFile: 'Import Rnote (.rnote)...',
+    rnoteLoading: 'Loading Rnote document...',
+    rnoteLoadError: 'Could not open Rnote file: {0}',
+    rnoteEmpty: 'This Rnote document has no visible content.',
+    rnoteZoomIn: 'Zoom In',
+    rnoteZoomOut: 'Zoom Out',
+    rnoteZoomReset: 'Reset Zoom (100%)',
+    rnoteFitWidth: 'Fit to Width',
+    rnoteFitAll: 'Fit All',
+    rnoteReload: 'Reload from Disk',
+    rnoteExportPng: 'Export View as PNG',
+    rnoteExportedPng: 'Exported Rnote PNG: {0}',
+    rnoteStats: '{0} images, {1} strokes',
+    rnoteReadOnlyHint: 'Rnote viewer is read-only — use Export PNG to save a snapshot.'
   };
 
   const ES = {
@@ -944,7 +960,23 @@
     wizardDoneGithub: 'Más proyectos míos en GitHub',
     wizardStepPrefs: 'Preferencias',
     wizardPrefsHeading: 'Preferencias generales',
-    wizardPrefsHint: 'Ya hay valores razonables por defecto. Todo esto también está en Ajustes.'
+    wizardPrefsHint: 'Ya hay valores razonables por defecto. Todo esto también está en Ajustes.',
+
+    // Rnote Viewer & Import
+    importRnoteFile: 'Importar Rnote (.rnote)...',
+    rnoteLoading: 'Cargando documento Rnote...',
+    rnoteLoadError: 'No se pudo abrir el archivo Rnote: {0}',
+    rnoteEmpty: 'Este documento Rnote no tiene contenido visible.',
+    rnoteZoomIn: 'Acercar',
+    rnoteZoomOut: 'Alejar',
+    rnoteZoomReset: 'Zoom al 100%',
+    rnoteFitWidth: 'Ajustar al ancho',
+    rnoteFitAll: 'Ajustar todo',
+    rnoteReload: 'Recargar desde disco',
+    rnoteExportPng: 'Exportar vista como PNG',
+    rnoteExportedPng: 'PNG de Rnote exportado: {0}',
+    rnoteStats: '{0} imágenes, {1} trazos',
+    rnoteReadOnlyHint: 'El visor Rnote es de solo lectura — usa Exportar PNG para guardar una captura.'
   };
 
   return { en: EN, es: ES };

@@ -14,6 +14,7 @@ const { createUpdater } = require('./updater');
 const { integrateLinuxDesktop } = require('./linux-integration');
 const { T3CodeService } = require('./t3code-service');
 const fsService = require('./fs-service');
+const rnoteService = require('./rnote-service');
 const mainI18n = require('./i18n');
 
 let mainWindow = null;
@@ -158,6 +159,7 @@ function buildAppMenu(lang = mainI18n.getLang()) {
         { label: t('openFolder'), accelerator: 'CmdOrCtrl+Shift+O', click: () => sendToRenderer('menu:command', 'open-folder') },
         { label: t('loadWorkspace'), click: () => sendToRenderer('menu:command', 'load-workspace') },
         { label: t('loadDatasetFile'), click: () => sendToRenderer('menu:command', 'load-dataset-file') },
+        { label: t('importRnoteFile'), click: () => sendToRenderer('menu:command', 'import-rnote') },
         { type: 'separator' },
         { label: t('save'), accelerator: 'CmdOrCtrl+S', click: () => sendToRenderer('menu:command', 'save') },
         { label: t('saveAs'), accelerator: 'CmdOrCtrl+Shift+S', click: () => sendToRenderer('menu:command', 'save-as') },
@@ -361,7 +363,8 @@ function registerIpc() {
       title: mainI18n.t('openFile'),
       properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: 'R, Markdown & Data', extensions: ['R', 'r', 'Rmd', 'rmd', 'qmd', 'md', 'csv', 'tsv', 'txt', 'RData', 'rda', 'rds', 'xlsx', 'xls'] },
+        { name: 'R, Markdown, Data & Rnote', extensions: ['R', 'r', 'Rmd', 'rmd', 'qmd', 'md', 'csv', 'tsv', 'txt', 'RData', 'rda', 'rds', 'xlsx', 'xls', 'rnote'] },
+        { name: 'Rnote Notes', extensions: ['rnote'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     };
@@ -374,11 +377,13 @@ function registerIpc() {
     for (const filePath of res.filePaths) {
       const ext = path.extname(filePath).toLowerCase();
       const isBinaryData = ['.rdata', '.rda', '.rds', '.xlsx', '.xls'].includes(ext);
+      const isRnote = ext === '.rnote';
       files.push({
         filePath,
         name: path.basename(filePath),
         isBinaryData,
-        content: isBinaryData ? '' : fs.readFileSync(filePath, 'utf8')
+        isRnote,
+        content: isBinaryData || isRnote ? '' : fs.readFileSync(filePath, 'utf8')
       });
     }
     return files;
@@ -388,12 +393,36 @@ function registerIpc() {
     if (!filePath || !fs.existsSync(filePath)) return null;
     const ext = path.extname(filePath).toLowerCase();
     const isBinaryData = ['.rdata', '.rda', '.rds', '.xlsx', '.xls'].includes(ext);
+    const isRnote = ext === '.rnote';
     return {
       filePath,
       name: path.basename(filePath),
       isBinaryData,
-      content: isBinaryData ? '' : fs.readFileSync(filePath, 'utf8')
+      isRnote,
+      content: isBinaryData || isRnote ? '' : fs.readFileSync(filePath, 'utf8')
     };
+  });
+
+  ipcMain.handle('file:openRnoteDialog', async (_e, opts) => {
+    const defaultDir = opts && typeof opts === 'object' ? opts.defaultDir : undefined;
+    const dialogOpts = {
+      title: mainI18n.t('importRnoteFile'),
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Rnote Notes', extensions: ['rnote'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    };
+    if (defaultDir && typeof defaultDir === 'string' && fs.existsSync(defaultDir)) {
+      dialogOpts.defaultPath = defaultDir;
+    }
+    const res = await dialog.showOpenDialog(mainWindow, dialogOpts);
+    if (res.canceled || !res.filePaths.length) return null;
+    return res.filePaths;
+  });
+
+  ipcMain.handle('rnote:load', async (_e, filePath) => {
+    return rnoteService.loadRnoteFile(filePath);
   });
 
   ipcMain.handle('file:openDataFileDialog', async () => {
