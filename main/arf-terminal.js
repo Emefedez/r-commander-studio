@@ -3,6 +3,7 @@
 const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const { findArf } = require('./r-runtime');
+const { rewriteSuperscripts } = require('../shared/r-superscripts');
 
 /**
  * Strips OSC / terminal title / cursor-positioning control sequences while keeping
@@ -186,7 +187,7 @@ else:
       if (!this.start()) return false;
     }
     try {
-      const text = String(code ?? '').replace(/\r\n/g, '\n').replace(/\n+$/, '');
+      const text = rewriteSuperscripts(String(code ?? '')).replace(/\r\n/g, '\n').replace(/\n+$/, '');
       if (!text.trim()) return true;
       const payload = text.includes('\n') ? `\x1b[200~${text}\x1b[201~\r` : `${text}\r`;
       this._proc.stdin.write(payload, 'utf8');

@@ -6,6 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, execFileSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
+const { rewriteSuperscripts, rewriteSuperscriptsInRmd } = require('../shared/r-superscripts');
 
 const DEFAULT_PACKAGES = [
   'svglite',
@@ -780,6 +781,7 @@ repeat {
       timeoutMs = 120000
     } = {}
   ) {
+    code = rewriteSuperscripts(code);
     const start = Date.now();
     const plotDir = capturePlots ? fs.mkdtempSync(path.join(os.tmpdir(), 'rcs-plots-')) : null;
     const wIn = Math.max(1.5, Number(plotWidth || 640) / 72).toFixed(3);
@@ -1199,7 +1201,7 @@ local({
     const safeName = path.basename(filename || 'document.Rmd').replace(/[^a-zA-Z0-9._-]/g, '_');
     const inFile = path.join(tmpDir, safeName.endsWith('.Rmd') || safeName.endsWith('.rmd') ? safeName : `${safeName}.Rmd`);
     const outFile = path.join(tmpDir, 'output.html');
-    fs.writeFileSync(inFile, String(content || ''), 'utf8');
+    fs.writeFileSync(inFile, rewriteSuperscriptsInRmd(String(content || '')), 'utf8');
 
     const script = `
 in_file <- ${JSON.stringify(inFile)}
