@@ -2329,8 +2329,13 @@ boxplot(Sepal.Length ~ Species, data = iris,
       edHost.hidden = false;
       const ed = state.editors[g];
       if (ed) {
-        if (ed.getModel() !== tab.model) ed.setModel(tab.model);
-        if (tab.viewState) ed.restoreViewState(tab.viewState);
+        // Restore the saved cursor/scroll only when switching to this tab: the
+        // view state is from when the tab was last left, so restoring it on a
+        // re-render of the visible tab (e.g. after Ctrl+S) jumps the cursor.
+        if (ed.getModel() !== tab.model) {
+          ed.setModel(tab.model);
+          if (tab.viewState) ed.restoreViewState(tab.viewState);
+        }
         ed.layout();
       }
     }
