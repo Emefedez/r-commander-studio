@@ -4786,6 +4786,10 @@ boxplot(Sepal.Length ~ Species, data = iris,
       if (code) executeR(code);
     });
     ed.addCommand(state.monaco.KeyMod.Alt | state.monaco.KeyCode.Minus, () => insertTextAtCursor(ed, ' <- '));
+    ed.addCommand(state.monaco.KeyMod.Alt | state.monaco.KeyCode.LeftArrow, () => ed.trigger('keyboard', 'cursorHome', null));
+    ed.addCommand(state.monaco.KeyMod.Alt | state.monaco.KeyCode.RightArrow, () => ed.trigger('keyboard', 'cursorEnd', null));
+    ed.addCommand(state.monaco.KeyMod.Alt | state.monaco.KeyMod.Shift | state.monaco.KeyCode.LeftArrow, () => ed.trigger('keyboard', 'cursorHomeSelect', null));
+    ed.addCommand(state.monaco.KeyMod.Alt | state.monaco.KeyMod.Shift | state.monaco.KeyCode.RightArrow, () => ed.trigger('keyboard', 'cursorEndSelect', null));
     ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyMod.Shift | state.monaco.KeyCode.KeyM, () => insertTextAtCursor(ed, ' |> '));
     ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyCode.KeyT, () => handleStudioCommand('new-r'));
     ed.addCommand(state.monaco.KeyMod.CtrlCmd | state.monaco.KeyMod.Shift | state.monaco.KeyCode.KeyT, () => handleStudioCommand('reopen-closed-tab'));
@@ -5489,6 +5493,33 @@ boxplot(Sepal.Length ~ Species, data = iris,
   $('btnKnit').addEventListener('click', () => handleStudioCommand('knit'));
   $('btnMathSheet')?.addEventListener('click', (e) => openMathCheatSheet(e.currentTarget));
   $('btnDocsCursor').addEventListener('click', openDocsForCursor);
+
+  document.addEventListener('keydown', (e) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    const active = document.activeElement;
+    if (!isEditableTextInput(active)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const a = active.selectionStart ?? 0;
+    const b = active.selectionEnd ?? 0;
+    const dir = active.selectionDirection || 'forward';
+    const head = dir === 'backward' ? a : b;
+    const anchor = dir === 'backward' ? b : a;
+    let next = head;
+    if (e.key === 'ArrowLeft') {
+      const nl = head > 0 ? active.value.lastIndexOf('\n', head - 1) : -1;
+      next = nl === -1 ? 0 : nl + 1;
+    } else {
+      const nl = active.value.indexOf('\n', head);
+      next = nl === -1 ? active.value.length : nl;
+    }
+    if (e.shiftKey) {
+      if (next < anchor) active.setSelectionRange(next, anchor, 'backward');
+      else active.setSelectionRange(anchor, next, 'forward');
+    } else {
+      active.setSelectionRange(next, next, 'none');
+    }
+  }, true);
 
   document.addEventListener('contextmenu', (e) => {
     const target = e.target;
