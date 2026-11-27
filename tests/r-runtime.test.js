@@ -121,6 +121,38 @@ test('RRuntime persistent session runs R code, captures SVG plots, inspects work
     });
     assert.equal(skipRes.ok, true);
     assert.match(skipRes.stdout, /\[1\] 2/);
+
+    // 7. Dynamic help HTTP server (help.start()) must respond while R session is idle
+    const browseUrls = [];
+    runtime.on('browseUrl', (u) => browseUrls.push(u));
+    const helpStartRes = await runtime.runCode('help.start()', {
+      capturePlots: false,
+      skipHelp: false,
+      syntaxColors: false
+    });
+    assert.equal(helpStartRes.ok, true, `help.start() stderr: ${helpStartRes.stderr}`);
+    const helpUrl = browseUrls.find((u) => /^http:\/\/127\.0\.0\.1:\d+\//.test(u));
+    assert.ok(helpUrl, `expected loopback help URL from help.start(), got: ${JSON.stringify(browseUrls)}`);
+    const httpRes = await fetch(helpUrl, { signal: AbortSignal.timeout(4000) });
+    assert.equal(httpRes.status, 200, `expected 200 OK from dynamic help server at ${helpUrl}`);
+    const html = await httpRes.text();
+    assert.match(html, /<html|The R Language|Documentation/i);
+
+    // 8. Structured help search: deduplicated & relevance-sorted
+    const searchRes = await runtime.searchHelp('combin', 20);
+    assert.equal(searchRes.ok, true);
+    assert.ok(searchRes.matches.length > 0, 'expected matches for "combin"');
+    const seenKeys = new Set(searchRes.matches.map((m) => `${m.package}::${m.topic}`));
+    assert.equal(seenKeys.size, searchRes.matches.length, 'searchHelp results must be deduplicated');
+
+    // 9. Help autocomplete suggestions (attached packages + pkg::fn namespace)
+    const sug1 = await runtime.suggestHelpTopics('comb', 12);
+    assert.equal(sug1.ok, true);
+    assert.ok(sug1.items.some((i) => i.topic === 'combn'), 'expected combn in autocomplete for "comb"');
+
+    const sug2 = await runtime.suggestHelpTopics('stats::dno', 12);
+    assert.equal(sug2.ok, true);
+    assert.ok(sug2.items.some((i) => i.topic === 'dnorm' && i.package === 'stats'), 'expected stats::dnorm');
   } finally {
     runtime.stopSession();
     fs.rmSync(tmpDir, { recursive: true, force: true });

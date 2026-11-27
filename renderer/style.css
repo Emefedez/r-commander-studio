@@ -2009,6 +2009,7 @@ header.titlebar {
 
 /* R Help / Documentation Pane */
 .help-search-row {
+  position: relative;
   height: 28px;
   padding: 0 8px;
   background: var(--bg-sidebar);
@@ -2029,6 +2030,78 @@ header.titlebar {
   font-size: 12px;
 }
 .help-search-row input:focus { outline: none; border-color: var(--focus-border); }
+.help-suggest-dropdown {
+  position: absolute;
+  top: 28px;
+  left: 8px;
+  right: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-menu);
+  border: 1px solid var(--border-field);
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 60;
+  padding: 3px 0;
+}
+.help-suggest-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.help-suggest-item:hover,
+.help-suggest-item.active {
+  background: var(--bg-selection);
+}
+.help-suggest-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.help-suggest-topic {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent-green);
+}
+.help-suggest-item.is-rcmdr .help-suggest-topic {
+  font-family: inherit;
+  color: var(--accent-cyan);
+}
+.help-suggest-pkg {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-purple);
+  flex-shrink: 0;
+}
+.help-suggest-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--bg-activity);
+  color: var(--accent-pink);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.help-match-hl {
+  background: rgba(241, 250, 140, 0.22);
+  color: var(--accent-yellow);
+  border-radius: 2px;
+  padding: 0 1px;
+}
 .help-content {
   flex: 1;
   min-height: 0;
@@ -2042,11 +2115,89 @@ header.titlebar {
   align-items: baseline;
   gap: 8px;
   padding-bottom: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   border-bottom: 1px solid var(--border-subtle);
 }
 .help-doc-fn { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--accent-green); }
 .help-doc-pkg { font-family: var(--font-mono); font-size: 11.5px; color: var(--accent-purple); }
+.help-doc-head-spacer { flex: 1; }
+.help-doc-browser-btn {
+  padding: 2px 7px;
+  border: 1px solid var(--border-field);
+  border-radius: 2px;
+  background: var(--bg-sidebar);
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.help-doc-browser-btn:hover { background: var(--bg-selection); }
+.help-doc-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0 0 10px 0;
+}
+.help-doc-sec {
+  margin-bottom: 12px;
+}
+.help-doc-sec-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-pink);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 2px;
+  margin-bottom: 6px;
+}
+.help-doc-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg-soft);
+}
+.help-doc-code {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.help-doc-args {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.help-doc-arg-row {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) 1fr;
+  gap: 4px 12px;
+  padding: 3px 6px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.help-doc-arg-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-orange);
+  word-break: break-word;
+}
+.help-doc-arg-desc {
+  font-size: 12px;
+  color: var(--fg-soft);
+  white-space: pre-wrap;
+}
 .help-doc-pre {
   margin: 0;
   white-space: pre-wrap;
@@ -2055,6 +2206,73 @@ header.titlebar {
   font-size: 12px;
   color: var(--fg-soft);
 }
+.help-search-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-cyan);
+  margin-bottom: 6px;
+}
+.help-search-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.help-search-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 210px) minmax(72px, 110px) 1fr;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: var(--bg-sidebar);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.help-search-item:hover {
+  background: var(--bg-selection);
+  border-color: var(--border-field);
+}
+.help-search-topic {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-green);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.help-search-pkg {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-purple);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.help-search-title {
+  font-size: 12px;
+  color: var(--fg-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Lightweight R syntax colors for Help code blocks */
+.hl-com { color: var(--fg-muted); font-style: italic; }
+.hl-str { color: var(--accent-yellow); }
+.hl-kw { color: var(--accent-pink); font-weight: 600; }
+.hl-const { color: var(--accent-purple); }
+.hl-num { color: var(--accent-purple); }
+.hl-fn { color: var(--accent-green); }
+.hl-arg { color: var(--accent-orange); }
+.hl-op { color: var(--accent-pink); }
 
 /* ============================================================================
    7. 22px VS CODE STATUS BAR (#191A21)

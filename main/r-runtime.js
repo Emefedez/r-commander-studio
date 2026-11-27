@@ -306,7 +306,10 @@ for (i in seq_along(pkgs)) {
 
     this._jobDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rcs-session-'));
     const harnessPath = path.join(this._jobDir, 'harness.R');
+    const signalPath = path.join(this._jobDir, 'next-job.txt');
+    this._signalPath = signalPath;
     const runnerPath = this.runnerPath;
+    const parentPid = process.pid;
 
     const harness = `
 options(
@@ -538,14 +541,32 @@ if (file.exists(${JSON.stringify(runnerPath)})) {
     }, silent = TRUE)
   }
 }
-con <- file("stdin", open = "r")
+.rcs_signal_file <- ${JSON.stringify(signalPath)}
+.rcs_job_dir <- ${JSON.stringify(this._jobDir)}
+.rcs_parent_pid <- ${Number(parentPid)}L
+.rcs_has_proc <- identical(.Platform$OS.type, "unix") && dir.exists("/proc")
+.rcs_idle_ticks <- 0L
 cat("__RCS_READY__\\n")
 flush.console()
 repeat {
-  line <- readLines(con, n = 1L, warn = FALSE)
-  if (!length(line)) break
-  line <- trimws(line)
+  if (!file.exists(.rcs_signal_file)) {
+    .rcs_idle_ticks <- .rcs_idle_ticks + 1L
+    if (.rcs_idle_ticks >= 40L) {
+      .rcs_idle_ticks <- 0L
+      if (!dir.exists(.rcs_job_dir)) break
+      if (.rcs_has_proc && !dir.exists(paste0("/proc/", .rcs_parent_pid))) break
+    }
+    # Sys.sleep() pumps R's native input handlers (e.g. tools::startDynamicHelp() HTTP server)
+    Sys.sleep(0.025)
+    next
+  }
+  .rcs_idle_ticks <- 0L
+  line <- tryCatch(readLines(.rcs_signal_file, n = 1L, warn = FALSE), error = function(e) character())
+  try(unlink(.rcs_signal_file), silent = TRUE)
+  if (!length(line)) next
+  line <- trimws(line[[1L]])
   if (!nzchar(line)) next
+  if (identical(line, "__RCS_EXIT__")) break
   parts <- strsplit(line, "\\t", fixed = TRUE)[[1L]]
   token <- parts[[1L]]
   job_file <- if (length(parts) >= 2L) parts[[2L]] else ""
@@ -756,7 +777,9 @@ repeat {
     }
 
     try {
-      this._proc.stdin.write(`${job.token}\t${job.jobFile}\n`);
+      const tmpSignal = `${this._signalPath}.tmp`;
+      fs.writeFileSync(tmpSignal, `${job.token}\t${job.jobFile}\n`, 'utf8');
+      fs.renameSync(tmpSignal, this._signalPath);
     } catch (err) {
       this._failActiveJob(err.message);
     }
@@ -1149,6 +1172,143 @@ local({
       this._fnHelpCache.set(cacheKey, result);
     }
     return result;
+  }
+
+  /**
+   * Structured, deduplicated, relevance-sorted R help search (replaces raw console print of help.search()).
+   */
+  async searchHelp(query, limit = 30) {
+    const clean = String(query || '').trim();
+    if (!clean) return { ok: false, query: '', total: 0, matches: [] };
+    const maxN = Math.max(1, Math.min(100, Number(limit) || 30));
+    const escapedPattern = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const expr = `local({
+      q <- ${JSON.stringify(clean)}
+      q_low <- tolower(q)
+      q_esc <- ${JSON.stringify(escapedPattern)}
+      hs <- tryCatch(utils::help.search(pattern = q_esc, agrep = FALSE)$matches, error = function(e) NULL)
+      if (is.null(hs) || !nrow(hs)) {
+        return(list(ok = TRUE, query = q, total = 0L, matches = list()))
+      }
+      key <- paste(hs$Package, hs$Topic, sep = "::")
+      keep <- !duplicated(key)
+      hs <- hs[keep, c("Package", "Topic", "Title"), drop = FALSE]
+      total_u <- nrow(hs)
+      topic_low <- tolower(as.character(hs$Topic))
+      title_low <- tolower(as.character(hs$Title))
+      pkg_chr <- as.character(hs$Package)
+      core_pkgs <- c("base", "stats", "utils", "graphics", "grDevices", "datasets", "methods")
+      rank <- ifelse(
+        topic_low == q_low, 0L,
+        ifelse(
+          startsWith(topic_low, q_low), 1L,
+          ifelse(
+            grepl(q_low, topic_low, fixed = TRUE), 2L,
+            ifelse(grepl(q_low, title_low, fixed = TRUE), 3L, 4L)
+          )
+        )
+      )
+      is_core <- ifelse(pkg_chr %in% core_pkgs, 0L, 1L)
+      ord <- order(rank, is_core, topic_low, tolower(pkg_chr))
+      hs <- hs[head(ord, ${maxN}L), , drop = FALSE]
+      items <- lapply(seq_len(nrow(hs)), function(i) {
+        list(
+          package = as.character(hs$Package[[i]]),
+          topic = as.character(hs$Topic[[i]]),
+          title = as.character(hs$Title[[i]])
+        )
+      })
+      list(ok = TRUE, query = q, total = as.integer(total_u), matches = items)
+    })`;
+
+    const res = await this._jsonRpc(expr, 15000);
+    if (!res || !res.ok) {
+      return { ok: false, query: clean, total: 0, matches: [], error: res?.error || 'Search failed' };
+    }
+    return {
+      ok: true,
+      query: clean,
+      total: Number(res.total) || 0,
+      matches: Array.isArray(res.matches) ? res.matches : []
+    };
+  }
+
+  /**
+   * Fast autocomplete suggestions for the Help search bar across attached packages,
+   * explicit pkg::fn namespace lookups, and user functions.
+   */
+  async suggestHelpTopics(query, limit = 14) {
+    const clean = String(query || '').trim();
+    if (!clean) return { ok: true, items: [] };
+    const maxN = Math.max(1, Math.min(40, Number(limit) || 14));
+
+    const expr = `local({
+      q <- ${JSON.stringify(clean)}
+      has_ns <- grepl("::", q, fixed = TRUE)
+      names_vec <- character()
+      pkgs_vec <- character()
+      if (has_ns) {
+        sp <- strsplit(q, "::", fixed = TRUE)[[1L]]
+        pkg <- trimws(sp[[1L]])
+        subq <- if (length(sp) >= 2L) trimws(sp[[2L]]) else ""
+        if (nzchar(pkg) && requireNamespace(pkg, quietly = TRUE)) {
+          ex <- tryCatch(getNamespaceExports(pkg), error = function(e) character())
+          if (length(ex)) {
+            names_vec <- ex
+            pkgs_vec <- rep(pkg, length(ex))
+          }
+        }
+        q_match <- tolower(subq)
+      } else {
+        q_match <- tolower(q)
+        sp_list <- search()
+        for (sp in sp_list) {
+          if (identical(sp, "R Play") || identical(sp, "Autoloads")) next
+          env <- tryCatch(as.environment(sp), error = function(e) NULL)
+          if (is.null(env)) next
+          objs <- ls(envir = env, all.names = startsWith(q_match, "."))
+          if (!length(objs)) next
+          pkg_label <- if (startsWith(sp, "package:")) sub("^package:", "", sp) else sp
+          names_vec <- c(names_vec, objs)
+          pkgs_vec <- c(pkgs_vec, rep(pkg_label, length(objs)))
+        }
+      }
+      if (!length(names_vec)) return(list(ok = TRUE, items = list()))
+      if (!startsWith(q_match, ".")) {
+        vis <- !startsWith(names_vec, ".")
+        names_vec <- names_vec[vis]
+        pkgs_vec <- pkgs_vec[vis]
+      }
+      n_low <- tolower(names_vec)
+      keep <- if (nzchar(q_match)) grepl(q_match, n_low, fixed = TRUE) else rep(TRUE, length(names_vec))
+      names_vec <- names_vec[keep]
+      pkgs_vec <- pkgs_vec[keep]
+      if (!length(names_vec)) return(list(ok = TRUE, items = list()))
+      dedup <- !duplicated(paste(pkgs_vec, names_vec, sep = "::"))
+      names_vec <- names_vec[dedup]
+      pkgs_vec <- pkgs_vec[dedup]
+      n_low <- tolower(names_vec)
+      core_pkgs <- c("base", "stats", "utils", "graphics", "grDevices", "datasets", "methods")
+      rank <- ifelse(
+        n_low == q_match, 0L,
+        ifelse(startsWith(n_low, q_match), 1L, 2L)
+      )
+      is_core <- ifelse(pkgs_vec %in% core_pkgs, 0L, 1L)
+      ord <- order(rank, is_core, nchar(names_vec), n_low, tolower(pkgs_vec))
+      idx <- head(ord, ${maxN}L)
+      items <- lapply(idx, function(i) {
+        list(topic = names_vec[[i]], package = pkgs_vec[[i]], kind = "r")
+      })
+      list(ok = TRUE, items = items)
+    })`;
+
+    const res = await this._jsonRpc(expr, 5000);
+    if (!res || !res.ok) return { ok: true, items: [] };
+    return {
+      ok: true,
+      items: Array.isArray(res.items) ? res.items : []
+    };
   }
 
   interrupt() {

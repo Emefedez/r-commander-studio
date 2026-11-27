@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('studio', {
   queryR: (expr) => ipcRenderer.invoke('r:query', expr),
   knitRmd: (payload) => ipcRenderer.invoke('r:knit', payload),
   rHelp: (topic) => ipcRenderer.invoke('r:help', topic),
+  rHelpSuggest: (query) => ipcRenderer.invoke('r:helpSuggest', query),
   rFnHelp: (payload) => ipcRenderer.invoke('r:fnHelp', payload),
 
   arfStart: () => ipcRenderer.invoke('arf:start'),

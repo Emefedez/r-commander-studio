@@ -633,17 +633,35 @@ function registerIpc() {
       }
     }
 
-    const res = await runtime.runCode(
-      `local({ hs <- tryCatch(utils::help.search(${JSON.stringify(clean)}, agrep = FALSE)$matches, error = function(e) NULL); if (!is.null(hs) && nrow(hs)) print(head(hs[, c("Package", "Topic", "Title")], 20)) else cat("No R help entries found for:", ${JSON.stringify(clean)}, "\\n") })`,
-      { capturePlots: false, skipHelp: false, limitOutput: false }
-    );
+    const searchRes = await runtime.searchHelp(clean, 30);
     return {
       ok: true,
+      kind: 'search',
       fn: clean,
       title: `Search: ${clean}`,
-      fullText: res.stdout || res.stderr || '',
+      total: searchRes.total || 0,
+      searchMatches: Array.isArray(searchRes.matches) ? searchRes.matches : [],
+      fullText: '',
       rcmdrMatches
     };
+  });
+
+  ipcMain.handle('r:helpSuggest', async (_e, query) => {
+    const clean = String(query || '').trim();
+    if (!clean) return { ok: true, items: [] };
+    const rcmdrItems = rcmdr
+      ? rcmdr.searchCommands(clean, mainI18n.getLang()).slice(0, 5).map((m) => ({
+          kind: 'rcmdr',
+          id: m.id,
+          topic: m.label,
+          altLabel: m.altLabel || '',
+          package: m.path || 'Rcmdr',
+          fns: Array.isArray(m.fns) ? m.fns : []
+        }))
+      : [];
+    const rRes = await runtime.suggestHelpTopics(clean, 12);
+    const rItems = Array.isArray(rRes?.items) ? rRes.items : [];
+    return { ok: true, items: [...rItems, ...rcmdrItems] };
   });
 
   ipcMain.handle('r:fnHelp', async (_e, { fnName, pkg }) => runtime.getFunctionHelp(fnName, pkg));

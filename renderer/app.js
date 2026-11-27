@@ -1776,9 +1776,266 @@ boxplot(Sepal.Length ~ Species, data = iris,
     host.querySelector('#btnPrereqStartHelp')?.addEventListener('click', () => executeR('help.start()', { label: 'help.start()', fromMenu: true }));
   }
 
+  function helpEscHtml(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function highlightHelpMatch(text, query) {
+    const raw = String(text ?? '');
+    const q = String(query ?? '').trim();
+    if (!q) return helpEscHtml(raw);
+    const idx = raw.toLowerCase().indexOf(q.toLowerCase());
+    if (idx === -1) return helpEscHtml(raw);
+    return (
+      helpEscHtml(raw.slice(0, idx)) +
+      `<mark class="help-match-hl">${helpEscHtml(raw.slice(idx, idx + q.length))}</mark>` +
+      helpEscHtml(raw.slice(idx + q.length))
+    );
+  }
+
+  function highlightRCodeHtml(code) {
+    const src = String(code ?? '');
+    const tokenRe =
+      /(#[^\n]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\b(function|if|else|for|in|while|repeat|next|break|return|library|require)\b|\b(TRUE|FALSE|NULL|NA|NA_integer_|NA_real_|NA_character_|NA_complex_|NaN|Inf)\b|\b(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?L?)\b|\b([A-Za-z.][A-Za-z0-9._]*)(?=\s*\()|\b([A-Za-z.][A-Za-z0-9._]*)(?=\s*=[^=])|(<-|->|<<-|%>%|\|>|::|:::|%[^%\s]+%)/g;
+    let out = '';
+    let last = 0;
+    let m;
+    while ((m = tokenRe.exec(src)) !== null) {
+      if (m.index > last) out += helpEscHtml(src.slice(last, m.index));
+      const full = helpEscHtml(m[0]);
+      if (m[1]) out += `<span class="hl-com">${full}</span>`;
+      else if (m[2]) out += `<span class="hl-str">${full}</span>`;
+      else if (m[3]) out += `<span class="hl-kw">${full}</span>`;
+      else if (m[4]) out += `<span class="hl-const">${full}</span>`;
+      else if (m[5]) out += `<span class="hl-num">${full}</span>`;
+      else if (m[6]) out += `<span class="hl-fn">${full}</span>`;
+      else if (m[7]) out += `<span class="hl-arg">${full}</span>`;
+      else if (m[8]) out += `<span class="hl-op">${full}</span>`;
+      else out += full;
+      last = tokenRe.lastIndex;
+    }
+    if (last < src.length) out += helpEscHtml(src.slice(last));
+    return out;
+  }
+
+  function renderFormattedRDoc(fullText) {
+    const frag = document.createDocumentFragment();
+    const lines = String(fullText || '').replace(/\r\n/g, '\n').split('\n');
+    const secHeaderRe = /^([A-Z][A-Za-z0-9 ()/&-]{1,30}):$/;
+    const sections = [];
+    let titleLines = [];
+    let current = null;
+
+    for (const line of lines) {
+      const hm = line.match(secHeaderRe);
+      if (hm) {
+        current = { name: hm[1], lines: [] };
+        sections.push(current);
+      } else if (!current) {
+        if (line.trim()) titleLines.push(line.trim());
+      } else {
+        current.lines.push(line);
+      }
+    }
+
+    if (titleLines.length) {
+      const titleEl = document.createElement('div');
+      titleEl.className = 'help-doc-title';
+      titleEl.textContent = titleLines.join(' — ');
+      frag.append(titleEl);
+    }
+
+    if (!sections.length) {
+      const pre = document.createElement('pre');
+      pre.className = 'help-doc-pre';
+      pre.textContent = fullText;
+      frag.append(pre);
+      return frag;
+    }
+
+    const dedent = (arr) => {
+      const trimmed = [...arr];
+      while (trimmed.length && !trimmed[0].trim()) trimmed.shift();
+      while (trimmed.length && !trimmed[trimmed.length - 1].trim()) trimmed.pop();
+      const indents = trimmed.filter((l) => l.trim()).map((l) => (l.match(/^ */)?.[0].length || 0));
+      const minIndent = indents.length ? Math.min(...indents) : 0;
+      return trimmed.map((l) => l.slice(minIndent)).join('\n');
+    };
+
+    for (const sec of sections) {
+      const bodyText = dedent(sec.lines);
+      if (!bodyText) continue;
+      const wrap = document.createElement('div');
+      wrap.className = 'help-doc-sec';
+      const h = document.createElement('div');
+      h.className = 'help-doc-sec-title';
+      h.textContent = sec.name;
+      wrap.append(h);
+
+      const lowerName = sec.name.toLowerCase();
+      if (lowerName === 'usage' || lowerName === 'examples') {
+        const pre = document.createElement('pre');
+        pre.className = 'help-doc-code';
+        pre.innerHTML = highlightRCodeHtml(bodyText);
+        wrap.append(pre);
+      } else if (lowerName === 'arguments') {
+        const list = document.createElement('div');
+        list.className = 'help-doc-args';
+        const argLines = bodyText.split('\n');
+        const entries = [];
+        for (const l of argLines) {
+          const am = l.match(/^([A-Za-z0-9._, `]+?):\s*(.*)$/);
+          if (am && !l.startsWith('  ')) {
+            entries.push({ name: am[1].trim(), desc: am[2] ? [am[2].trim()] : [] });
+          } else if (entries.length) {
+            entries[entries.length - 1].desc.push(l.trim());
+          } else if (l.trim()) {
+            entries.push({ name: '', desc: [l.trim()] });
+          }
+        }
+        if (entries.length && entries.some((e) => e.name)) {
+          for (const e of entries) {
+            const row = document.createElement('div');
+            row.className = 'help-doc-arg-row';
+            const n = document.createElement('span');
+            n.className = 'help-doc-arg-name';
+            n.textContent = e.name;
+            const d = document.createElement('span');
+            d.className = 'help-doc-arg-desc';
+            d.textContent = e.desc.filter(Boolean).join(' ');
+            row.append(n, d);
+            list.append(row);
+          }
+          wrap.append(list);
+        } else {
+          const p = document.createElement('pre');
+          p.className = 'help-doc-text';
+          p.textContent = bodyText;
+          wrap.append(p);
+        }
+      } else {
+        const p = document.createElement('pre');
+        p.className = 'help-doc-text';
+        p.textContent = bodyText;
+        wrap.append(p);
+      }
+      frag.append(wrap);
+    }
+    return frag;
+  }
+
+  let helpSuggestTimer = null;
+  let helpSuggestItems = [];
+  let helpSuggestIndex = -1;
+  let helpSuggestSeq = 0;
+
+  function hideHelpSuggest() {
+    const dd = $('helpSuggestDropdown');
+    if (dd) {
+      dd.hidden = true;
+      dd.textContent = '';
+    }
+    helpSuggestItems = [];
+    helpSuggestIndex = -1;
+  }
+
+  function renderHelpSuggest(query, items) {
+    const dd = $('helpSuggestDropdown');
+    if (!dd) return;
+    helpSuggestItems = Array.isArray(items) ? items : [];
+    helpSuggestIndex = -1;
+    dd.textContent = '';
+    if (!helpSuggestItems.length) {
+      dd.hidden = true;
+      return;
+    }
+    const qMatch = query.includes('::') ? query.split('::')[1] || '' : query;
+    helpSuggestItems.forEach((item, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `help-suggest-item${item.kind === 'rcmdr' ? ' is-rcmdr' : ''}`;
+      btn.dataset.idx = String(idx);
+      const main = document.createElement('span');
+      main.className = 'help-suggest-main';
+      if (item.kind === 'rcmdr') {
+        const badge = document.createElement('span');
+        badge.className = 'help-suggest-badge';
+        badge.textContent = 'Rcmdr';
+        main.append(badge);
+      }
+      const topicEl = document.createElement('span');
+      topicEl.className = 'help-suggest-topic';
+      topicEl.innerHTML = highlightHelpMatch(item.topic, qMatch);
+      main.append(topicEl);
+      const pkgEl = document.createElement('span');
+      pkgEl.className = 'help-suggest-pkg';
+      pkgEl.textContent = item.kind === 'rcmdr' ? item.package : `{${item.package}}`;
+      btn.append(main, pkgEl);
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectHelpSuggestItem(item);
+      });
+      dd.append(btn);
+    });
+    dd.hidden = false;
+  }
+
+  function setHelpSuggestActive(nextIdx) {
+    const dd = $('helpSuggestDropdown');
+    if (!dd || dd.hidden || !helpSuggestItems.length) return;
+    const len = helpSuggestItems.length;
+    helpSuggestIndex = ((nextIdx % len) + len) % len;
+    const nodes = dd.querySelectorAll('.help-suggest-item');
+    nodes.forEach((n, i) => {
+      const isAct = i === helpSuggestIndex;
+      n.classList.toggle('active', isAct);
+      if (isAct) n.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function selectHelpSuggestItem(item) {
+    hideHelpSuggest();
+    if (!item) return;
+    if (item.kind === 'rcmdr') {
+      if (Array.isArray(item.fns) && item.fns.length) {
+        openRDocs(item.fns[0]);
+      } else if (item.id) {
+        triggerRcmdrCommand(item.id);
+      }
+      return;
+    }
+    const target = item.package && item.package !== '.GlobalEnv' ? `${item.package}::${item.topic}` : item.topic;
+    openRDocs(target);
+  }
+
+  function scheduleHelpSuggest(raw) {
+    if (helpSuggestTimer) clearTimeout(helpSuggestTimer);
+    const q = String(raw || '').trim();
+    if (!q) {
+      hideHelpSuggest();
+      return;
+    }
+    const seq = ++helpSuggestSeq;
+    helpSuggestTimer = setTimeout(async () => {
+      try {
+        const res = await window.studio.rHelpSuggest(q);
+        if (seq !== helpSuggestSeq) return;
+        if ($('helpSearchInput')?.value.trim() !== q) return;
+        renderHelpSuggest(q, res?.items || []);
+      } catch {
+        hideHelpSuggest();
+      }
+    }, 110);
+  }
+
   async function openRDocs(topic) {
     const clean = String(topic || '').trim();
     if (!clean) return;
+    hideHelpSuggest();
     state.lastHelpTopic = clean;
     $('actHelp')?.classList.remove('needs-step');
     $('helpSearchInput').value = clean;
@@ -1813,15 +2070,68 @@ boxplot(Sepal.Length ~ Species, data = iris,
       }
       host.append(box);
     }
+
+    if (res.kind === 'search') {
+      const matches = Array.isArray(res.searchMatches) ? res.searchMatches : [];
+      const header = document.createElement('div');
+      header.className = 'help-search-header';
+      const total = Number(res.total) || matches.length;
+      const isEs = getLang() === 'es';
+      header.textContent = isEs
+        ? `Resultados de ayuda R para "${clean}" (${matches.length}${total > matches.length ? ` de ${total}` : ''})`
+        : `R Help Matches for "${clean}" (${matches.length}${total > matches.length ? ` of ${total}` : ''})`;
+      host.append(header);
+
+      if (!matches.length) {
+        const empty = document.createElement('div');
+        empty.className = 'ws-empty';
+        empty.textContent = isEs
+          ? `No se encontraron entradas de ayuda en R para "${clean}".`
+          : `No R help entries found for "${clean}".`;
+        host.append(empty);
+        return;
+      }
+
+      const list = document.createElement('div');
+      list.className = 'help-search-list';
+      for (const m of matches) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'help-search-item';
+        row.title = `${m.package}::${m.topic} — ${m.title}`;
+
+        const topicSpan = document.createElement('span');
+        topicSpan.className = 'help-search-topic';
+        topicSpan.innerHTML = highlightHelpMatch(m.topic, clean);
+
+        const pkgSpan = document.createElement('span');
+        pkgSpan.className = 'help-search-pkg';
+        pkgSpan.textContent = `{${m.package}}`;
+
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'help-search-title';
+        titleSpan.innerHTML = highlightHelpMatch(m.title, clean);
+
+        row.append(topicSpan, pkgSpan, titleSpan);
+        row.addEventListener('click', () => openRDocs(`${m.package}::${m.topic}`));
+        list.append(row);
+      }
+      host.append(list);
+      return;
+    }
+
     const head = document.createElement('div');
     head.className = 'help-doc-head';
-    head.innerHTML = `<span class="help-doc-fn"></span><span class="help-doc-pkg"></span>`;
+    head.innerHTML =
+      `<span class="help-doc-fn"></span><span class="help-doc-pkg"></span>` +
+      `<span class="help-doc-head-spacer"></span>` +
+      `<button type="button" class="help-doc-browser-btn" title="help.start()">help.start()</button>`;
     head.querySelector('.help-doc-fn').textContent = res.fn || clean;
     head.querySelector('.help-doc-pkg').textContent = res.package ? `{${res.package}}` : '';
-    const pre = document.createElement('pre');
-    pre.className = 'help-doc-pre';
-    pre.textContent = res.fullText || res.description || res.usage || '';
-    host.append(head, pre);
+    head.querySelector('.help-doc-browser-btn').addEventListener('click', () =>
+      executeR('help.start()', { label: 'help.start()', fromMenu: true })
+    );
+    host.append(head, renderFormattedRDoc(res.fullText || res.description || res.usage || ''));
   }
 
   function openDocsForCursor() {
@@ -6221,11 +6531,56 @@ boxplot(Sepal.Length ~ Species, data = iris,
     }
   });
 
-  // Help search input
-  $('helpSearchInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') openRDocs($('helpSearchInput').value);
+  // Help search input + live autocomplete
+  const helpInput = $('helpSearchInput');
+  helpInput.addEventListener('input', () => scheduleHelpSuggest(helpInput.value));
+  helpInput.addEventListener('focus', () => {
+    if (helpInput.value.trim()) scheduleHelpSuggest(helpInput.value);
   });
-  $('btnHelpGo').addEventListener('click', () => openRDocs($('helpSearchInput').value));
+  helpInput.addEventListener('blur', () => {
+    setTimeout(hideHelpSuggest, 120);
+  });
+  helpInput.addEventListener('keydown', (e) => {
+    const dd = $('helpSuggestDropdown');
+    const open = dd && !dd.hidden && helpSuggestItems.length > 0;
+    if (e.key === 'ArrowDown' && open) {
+      e.preventDefault();
+      setHelpSuggestActive(helpSuggestIndex + 1);
+      return;
+    }
+    if (e.key === 'ArrowUp' && open) {
+      e.preventDefault();
+      setHelpSuggestActive(helpSuggestIndex <= 0 ? helpSuggestItems.length - 1 : helpSuggestIndex - 1);
+      return;
+    }
+    if (e.key === 'Tab' && open) {
+      const picked = helpSuggestItems[helpSuggestIndex >= 0 ? helpSuggestIndex : 0];
+      if (picked && picked.kind !== 'rcmdr') {
+        e.preventDefault();
+        helpInput.value = picked.topic;
+        scheduleHelpSuggest(picked.topic);
+      }
+      return;
+    }
+    if (e.key === 'Escape' && open) {
+      e.preventDefault();
+      hideHelpSuggest();
+      return;
+    }
+    if (e.key === 'Enter') {
+      if (open && helpSuggestIndex >= 0 && helpSuggestItems[helpSuggestIndex]) {
+        e.preventDefault();
+        selectHelpSuggestItem(helpSuggestItems[helpSuggestIndex]);
+      } else {
+        hideHelpSuggest();
+        openRDocs(helpInput.value);
+      }
+    }
+  });
+  $('btnHelpGo').addEventListener('click', () => {
+    hideHelpSuggest();
+    openRDocs(helpInput.value);
+  });
 
   // Plot controls & Multi-format Export (SVG / PNG 2x / PDF / Copy PNG)
   $('btnPlotPrev').addEventListener('click', () => {
