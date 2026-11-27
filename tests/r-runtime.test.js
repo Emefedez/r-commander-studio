@@ -153,6 +153,16 @@ test('RRuntime persistent session runs R code, captures SVG plots, inspects work
     const sug2 = await runtime.suggestHelpTopics('stats::dno', 12);
     assert.equal(sug2.ok, true);
     assert.ok(sug2.items.some((i) => i.topic === 'dnorm' && i.package === 'stats'), 'expected stats::dnorm');
+
+    // 10. Instant cached editor autocomplete (attached packages, pkg::fn, and df$col)
+    const compChoose = await runtime.completeSymbols({ prefix: 'choo' });
+    assert.ok(compChoose.some((i) => i.label === 'choose'), 'expected choose for prefix "choo"');
+    const compBox = await runtime.completeSymbols({ prefix: 'boxp' });
+    assert.ok(compBox.some((i) => i.label === 'boxplot'), 'expected boxplot for prefix "boxp"');
+    const compPkg = await runtime.completeSymbols({ prefix: 'dno', pkg: 'stats' });
+    assert.ok(compPkg.some((i) => i.label === 'dnorm'), 'expected stats::dnorm');
+    const compCol = await runtime.completeSymbols({ prefix: 's', objectName: 'df', snapshot: await runtime.snapshot() });
+    assert.ok(compCol.some((i) => i.label === 'score'), 'expected df$score column completion');
   } finally {
     runtime.stopSession();
     fs.rmSync(tmpDir, { recursive: true, force: true });

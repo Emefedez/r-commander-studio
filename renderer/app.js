@@ -5072,7 +5072,10 @@ boxplot(Sepal.Length ~ Species, data = iris,
       scrollBeyondLastLine: false,
       renderLineHighlight: 'all',
       tabSize: 2,
-      wordWrap: state.settings.editorWordWrap !== false ? 'on' : 'off'
+      wordWrap: state.settings.editorWordWrap !== false ? 'on' : 'off',
+      quickSuggestions: { other: true, comments: false, strings: false },
+      quickSuggestionsDelay: 40,
+      suggestOnTriggerCharacters: true
     });
     ed.onDidFocusEditorText(() => setFocusedGroup(g));
     ed.onDidChangeCursorPosition((e) => {

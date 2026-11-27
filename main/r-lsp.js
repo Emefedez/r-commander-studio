@@ -608,21 +608,54 @@ class RLanguageServer extends EventEmitter {
     }
   }
 
-  async completion(uri, line, character) {
+  syncDocument(uri, text, { isRmd = false } = {}) {
+    if (!this._initialized || typeof text !== 'string') return;
+    const prev = this._docs.get(uri);
+    const rText = isRmd ? extractRmdChunks(text).code : text;
+    if (prev && prev.rText === rText) return;
+    const version = (prev?.version || 0) + 1;
+    this._docs.set(uri, { version, isRmd, text, rText });
+    if (!prev) {
+      this._sendDidOpen(uri, rText, version);
+    } else {
+      this._notify('textDocument/didChange', {
+        textDocument: { uri, version },
+        contentChanges: [{ text: rText }]
+      });
+    }
+  }
+
+  async completion(uri, line, character, { text, isRmd = false, prefix = '', timeoutMs = 450 } = {}) {
     if (!this._initialized) return [];
     try {
+      if (typeof text === 'string') {
+        this.syncDocument(uri, text, { isRmd });
+      }
       const result = await this._request(
         'textDocument/completion',
         {
           textDocument: { uri },
           position: { line: Math.max(0, line - 1), character: Math.max(0, character - 1) }
         },
-        2500
+        timeoutMs
       );
       const list = Array.isArray(result) ? result : result?.items || [];
-      return list.slice(0, 80).map((item) => ({
+      const pLow = String(prefix || '').toLowerCase();
+      let filtered = list;
+      if (pLow) {
+        filtered = list.filter((item) => String(item.label || '').toLowerCase().includes(pLow));
+        filtered.sort((a, b) => {
+          const al = String(a.label || '').toLowerCase();
+          const bl = String(b.label || '').toLowerCase();
+          const ar = al === pLow ? 0 : al.startsWith(pLow) ? 1 : 2;
+          const br = bl === pLow ? 0 : bl.startsWith(pLow) ? 1 : 2;
+          if (ar !== br) return ar - br;
+          return al.length - bl.length || al.localeCompare(bl);
+        });
+      }
+      return filtered.slice(0, 100).map((item) => ({
         label: item.label,
-        kind: item.kind || 1,
+        kind: item.kind || 3,
         detail: item.detail || '',
         documentation:
           typeof item.documentation === 'string'

@@ -221,6 +221,9 @@ class RRuntime extends EventEmitter {
 
     this._envCache = null;
     this._fnHelpCache = new Map();
+    this._symbolCatalog = null;
+    this._symbolCatalogPromise = null;
+    this._pkgExportsCache = new Map();
     this._proc = null;
     this._ready = false;
     this._queue = [];
@@ -887,6 +890,9 @@ local({
           if (isNonEmptyPlotSvg(svg)) plots.push(svg);
         }
       }
+      if (/\b(?:library|require|attach|detach)\s*\(/.test(code)) {
+        this._symbolCatalog = null;
+      }
       return {
         ok: !/\bError\b\s*:/m.test(stderr),
         stdout,
@@ -1311,6 +1317,196 @@ local({
     };
   }
 
+  /**
+   * Loads and caches all visible symbols from attached R packages for sub-millisecond editor autocomplete.
+   */
+  async ensureSymbolCatalog(force = false) {
+    if (!force && Array.isArray(this._symbolCatalog) && this._symbolCatalog.length) {
+      return this._symbolCatalog;
+    }
+    if (!force && this._symbolCatalogPromise) {
+      return this._symbolCatalogPromise;
+    }
+    const expr = `local({
+      sp_list <- search()
+      out_names <- character()
+      out_pkgs <- character()
+      out_is_fn <- logical()
+      for (sp in sp_list) {
+        if (identical(sp, "R Play") || identical(sp, "Autoloads") || identical(sp, ".GlobalEnv")) next
+        env <- tryCatch(as.environment(sp), error = function(e) NULL)
+        if (is.null(env)) next
+        objs <- ls(envir = env, all.names = FALSE)
+        if (!length(objs)) next
+        pkg_label <- if (startsWith(sp, "package:")) sub("^package:", "", sp) else sp
+        is_fn <- vapply(objs, function(nm) {
+          tryCatch(is.function(get(nm, envir = env, inherits = FALSE)), error = function(e) FALSE)
+        }, logical(1))
+        out_names <- c(out_names, objs)
+        out_pkgs <- c(out_pkgs, rep(pkg_label, length(objs)))
+        out_is_fn <- c(out_is_fn, is_fn)
+      }
+      dedup <- !duplicated(out_names)
+      out_names <- out_names[dedup]
+      out_pkgs <- out_pkgs[dedup]
+      out_is_fn <- out_is_fn[dedup]
+      list(ok = TRUE, names = out_names, pkgs = out_pkgs, isFn = out_is_fn)
+    })`;
+
+    this._symbolCatalogPromise = this._jsonRpc(expr, 8000)
+      .then((res) => {
+        if (res && res.ok && Array.isArray(res.names)) {
+          const coreSet = new Set(['base', 'stats', 'utils', 'graphics', 'grDevices', 'datasets', 'methods']);
+          const catalog = res.names.map((name, idx) => {
+            const pkg = Array.isArray(res.pkgs) ? res.pkgs[idx] || '' : '';
+            const isFn = Array.isArray(res.isFn) ? Boolean(res.isFn[idx]) : true;
+            return {
+              label: String(name),
+              labelLower: String(name).toLowerCase(),
+              pkg,
+              isFn,
+              isCore: coreSet.has(pkg)
+            };
+          });
+          this._symbolCatalog = catalog;
+          return catalog;
+        }
+        return this._symbolCatalog || [];
+      })
+      .catch(() => this._symbolCatalog || [])
+      .finally(() => {
+        this._symbolCatalogPromise = null;
+      });
+    return this._symbolCatalogPromise;
+  }
+
+  /**
+   * Fast in-memory editor autocomplete across attached R packages, explicit pkg::fn namespaces,
+   * and live workspace objects/columns.
+   */
+  async completeSymbols({ prefix = '', pkg = '', objectName = '', snapshot = null, limit = 60 } = {}) {
+    const pLow = String(prefix || '').toLowerCase();
+    const maxN = Math.max(1, Math.min(120, Number(limit) || 60));
+
+    // 1. Data frame / list column completion: df$col
+    if (objectName && snapshot?.datasets?.[objectName]) {
+      const vars = snapshot.datasets[objectName].vars || [];
+      return vars
+        .filter((v) => !pLow || String(v.name || '').toLowerCase().includes(pLow))
+        .slice(0, maxN)
+        .map((v) => ({
+          label: v.name,
+          kind: 5, // Field
+          detail: `${objectName}$${v.name} (${v.kind || 'var'})`,
+          insertText: v.name
+        }));
+    }
+
+    // 2. Explicit package namespace completion: pkg::fn
+    if (pkg) {
+      const cleanPkg = String(pkg).trim();
+      let exports = this._pkgExportsCache.get(cleanPkg);
+      if (!exports) {
+        const res = await this._jsonRpc(
+          `local({
+            p <- ${JSON.stringify(cleanPkg)}
+            if (!requireNamespace(p, quietly = TRUE)) return(list(ok = TRUE, items = character()))
+            list(ok = TRUE, items = sort(getNamespaceExports(p)))
+          })`,
+          4000
+        );
+        exports = res && res.ok && Array.isArray(res.items) ? res.items : [];
+        if (exports.length) this._pkgExportsCache.set(cleanPkg, exports);
+      }
+      const matched = exports
+        .filter((nm) => (!pLow || nm.toLowerCase().includes(pLow)) && (pLow.startsWith('.') || !nm.startsWith('.')))
+        .sort((a, b) => {
+          const al = a.toLowerCase();
+          const bl = b.toLowerCase();
+          const ar = al === pLow ? 0 : al.startsWith(pLow) ? 1 : 2;
+          const br = bl === pLow ? 0 : bl.startsWith(pLow) ? 1 : 2;
+          return ar - br || a.length - b.length || al.localeCompare(bl);
+        })
+        .slice(0, maxN);
+      return matched.map((nm) => ({
+        label: nm,
+        kind: 3, // Function
+        detail: `{${cleanPkg}}`,
+        insertText: nm
+      }));
+    }
+
+    // 3. Attached R packages + workspace datasets/objects
+    const catalog = await this.ensureSymbolCatalog();
+    const candidates = [];
+
+    if (snapshot) {
+      for (const dsName of Object.keys(snapshot.datasets || {})) {
+        const dsLow = dsName.toLowerCase();
+        if (!pLow || dsLow.includes(pLow)) {
+          candidates.push({
+            label: dsName,
+            labelLower: dsLow,
+            kind: 6, // Variable
+            detail: `data.frame (${snapshot.datasets[dsName].rows}x${snapshot.datasets[dsName].columns})`,
+            isCore: true
+          });
+        }
+      }
+      for (const obj of snapshot.objects || []) {
+        const nm = typeof obj === 'string' ? obj : obj?.name;
+        if (!nm || snapshot.datasets?.[nm]) continue;
+        const nmLow = nm.toLowerCase();
+        if (!pLow || nmLow.includes(pLow)) {
+          candidates.push({
+            label: nm,
+            labelLower: nmLow,
+            kind: 6,
+            detail: obj?.cls ? `${obj.cls} (.GlobalEnv)` : '.GlobalEnv',
+            isCore: true
+          });
+        }
+      }
+    }
+
+    for (const sym of catalog) {
+      if (pLow && !sym.labelLower.includes(pLow)) continue;
+      if (!pLow && !sym.isCore) continue;
+      candidates.push({
+        label: sym.label,
+        labelLower: sym.labelLower,
+        kind: sym.isFn ? 3 : 6,
+        detail: sym.pkg ? `{${sym.pkg}}` : '',
+        isCore: sym.isCore
+      });
+    }
+
+    candidates.sort((a, b) => {
+      if (pLow) {
+        const ar = a.labelLower === pLow ? 0 : a.labelLower.startsWith(pLow) ? 1 : 2;
+        const br = b.labelLower === pLow ? 0 : b.labelLower.startsWith(pLow) ? 1 : 2;
+        if (ar !== br) return ar - br;
+      }
+      if (a.isCore !== b.isCore) return a.isCore ? -1 : 1;
+      return a.label.length - b.label.length || a.labelLower.localeCompare(b.labelLower);
+    });
+
+    const seen = new Set();
+    const out = [];
+    for (const c of candidates) {
+      if (seen.has(c.label)) continue;
+      seen.add(c.label);
+      out.push({
+        label: c.label,
+        kind: c.kind,
+        detail: c.detail,
+        insertText: c.label
+      });
+      if (out.length >= maxN) break;
+    }
+    return out;
+  }
+
   interrupt() {
     if (!this._proc) return false;
     try {
@@ -1341,6 +1537,8 @@ local({
       this._proc = null;
     }
     this._ready = false;
+    this._symbolCatalog = null;
+    this._symbolCatalogPromise = null;
     this._failActiveJob('R session stopped');
     if (this._jobDir) {
       try {

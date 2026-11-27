@@ -369,26 +369,52 @@
         triggerCharacters: ['.', '$', ':', '(', '@'],
         async provideCompletionItems(model, position) {
           const uri = getUriForModel(model);
-          if (!uri || !window.studio?.lspCompletion) return { suggestions: [] };
-          const word = model.getWordUntilPosition(position);
+          if (!window.studio?.lspCompletion) return { suggestions: [] };
+          const lineText = model.getLineContent(position.lineNumber);
+          const beforeCursor = lineText.slice(0, position.column - 1);
+          const wordMatch = beforeCursor.match(/([A-Za-z.][A-Za-z0-9._]*)$/);
+          const prefix = wordMatch ? wordMatch[1] : '';
+          const startColumn = wordMatch ? position.column - prefix.length : position.column;
+          const beforeWord = beforeCursor.slice(0, startColumn - 1);
+          const pkgMatch = beforeWord.match(/([A-Za-z][A-Za-z0-9.]*):::?$/);
+          const objMatch = !pkgMatch ? beforeWord.match(/([A-Za-z.][A-Za-z0-9._]*)\$$/) : null;
           const range = {
             startLineNumber: position.lineNumber,
             endLineNumber: position.lineNumber,
-            startColumn: word.startColumn,
-            endColumn: word.endColumn
+            startColumn,
+            endColumn: position.column
           };
           const items = await window.studio.lspCompletion({
             uri,
             line: position.lineNumber,
-            character: position.column
+            character: position.column,
+            text: model.getValue(),
+            isRmd: model.getLanguageId() === 'rmd',
+            prefix,
+            pkg: pkgMatch ? pkgMatch[1] : '',
+            objectName: objMatch ? objMatch[1] : ''
           });
+          const mapKind = (k) => {
+            switch (k) {
+              case 2: return monaco.languages.CompletionItemKind.Method;
+              case 3: return monaco.languages.CompletionItemKind.Function;
+              case 5: return monaco.languages.CompletionItemKind.Field;
+              case 6: return monaco.languages.CompletionItemKind.Variable;
+              case 9: return monaco.languages.CompletionItemKind.Module;
+              case 14: return monaco.languages.CompletionItemKind.Keyword;
+              case 21: return monaco.languages.CompletionItemKind.Constant;
+              default: return monaco.languages.CompletionItemKind.Function;
+            }
+          };
           return {
-            suggestions: (items || []).map((item) => ({
+            incomplete: true,
+            suggestions: (items || []).map((item, idx) => ({
               label: item.label,
-              kind: item.kind || monaco.languages.CompletionItemKind.Function,
+              kind: mapKind(item.kind),
               detail: item.detail || '',
               documentation: item.documentation ? { value: item.documentation } : undefined,
               insertText: item.insertText || item.label,
+              sortText: String(idx).padStart(4, '0'),
               range
             }))
           };

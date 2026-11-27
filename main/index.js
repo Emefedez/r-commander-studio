@@ -701,7 +701,43 @@ function registerIpc() {
   ipcMain.handle('lsp:installPackage', async (_e, { repos } = {}) =>
     lsp.installPackage({ repos, onProgress: (line) => sendToRenderer('lsp:installProgress', { line }) })
   );
-  ipcMain.handle('lsp:completion', async (_e, { uri, line, character }) => lsp.completion(uri, line, character));
+  ipcMain.handle('lsp:completion', async (_e, { uri, line, character, text, isRmd, prefix, pkg, objectName }) => {
+    const [lspItems, rtItems] = await Promise.all([
+      lsp
+        .completion(uri, line, character, { text, isRmd, prefix, timeoutMs: 280 })
+        .catch(() => []),
+      runtime
+        .completeSymbols({ prefix, pkg, objectName, snapshot: lastSnapshot, limit: 70 })
+        .catch(() => [])
+    ]);
+    const merged = [];
+    const seen = new Set();
+    // Prefer rich LSP entries first when they match, then fill immediately from cached R runtime symbols
+    for (const item of lspItems || []) {
+      const key = String(item?.label || '');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+    for (const item of rtItems || []) {
+      const key = String(item?.label || '');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+    const pLow = String(prefix || '').toLowerCase();
+    if (pLow) {
+      merged.sort((a, b) => {
+        const al = String(a.label || '').toLowerCase();
+        const bl = String(b.label || '').toLowerCase();
+        const ar = al === pLow ? 0 : al.startsWith(pLow) ? 1 : 2;
+        const br = bl === pLow ? 0 : bl.startsWith(pLow) ? 1 : 2;
+        if (ar !== br) return ar - br;
+        return al.length - bl.length || al.localeCompare(bl);
+      });
+    }
+    return merged.slice(0, 100);
+  });
 
   // --- R Commander Service ---
   ipcMain.handle('rcmdr:getTree', async (_e, lang) => rcmdr.getTree(lang));
@@ -975,6 +1011,10 @@ async function bootServices() {
 
   runtime.on('output', (payload) => sendToRenderer('r:output', payload));
   runtime.on('viewTable', (payload) => sendToRenderer('r:viewTable', payload));
+  runtime.on('ready', () => {
+    // Pre-warm attached R package symbol catalog so editor autocomplete is instant on the first keystroke
+    runtime.ensureSymbolCatalog().catch(() => {});
+  });
   runtime.on('browseUrl', (url) => {
     if (typeof url === 'string' && /^(https?|file):\/\//i.test(url)) {
       shell.openExternal(url).catch(() => {});
