@@ -3644,3 +3644,217 @@ body.layout-locked .sidebar-titlebar:active { cursor: default; }
 }
 .hscroll-fade.fade-left { --fade-l: 28px; }
 .hscroll-fade.fade-right { --fade-r: 28px; }
+
+/* Extra math preview formatting for Markdown Preview & Math Cheat Sheet */
+.math-overline {
+  text-decoration: overline;
+}
+.math-vec {
+  position: relative;
+  display: inline-block;
+  border-top: 1px solid currentColor;
+  padding-top: 1px;
+}
+.math-sqrt-idx {
+  font-size: 0.7em;
+  margin-right: 1px;
+}
+.math-binom {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  gap: 1px;
+}
+.math-binom-col {
+  display: inline-flex;
+  flex-direction: column;
+  text-align: center;
+  font-size: 0.85em;
+  line-height: 1.1;
+  padding: 0 2px;
+}
+.math-overset {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  line-height: 1.05;
+  margin: 0 2px;
+}
+.math-over-top {
+  font-size: 0.72em;
+  line-height: 1.1;
+}
+.math-over-base {
+  line-height: 1;
+}
+
+/* Searchable Bilingual Math Notation & LaTeX Cheat Sheet */
+.math-adapt-sheet {
+  position: fixed;
+  z-index: 950;
+  width: min(560px, calc(100vw - 20px));
+  max-height: min(520px, calc(100vh - 24px));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-menu);
+  color: var(--fg);
+  border: 1px solid var(--border-field);
+  border-radius: 6px;
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+.math-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 7px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-chrome);
+}
+.math-sheet-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.math-sheet-close {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+.math-sheet-search {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+}
+.math-sheet-search input {
+  width: 100%;
+  height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-field);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--fg);
+  font-size: 12.5px;
+  box-sizing: border-box;
+}
+.math-sheet-search input:focus {
+  outline: none;
+  border-color: var(--accent-purple);
+}
+.math-sheet-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.math-sheet-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.math-sheet-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  padding: 2px 2px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.math-sheet-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-editor);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.math-sheet-item:hover,
+.math-sheet-item:focus-visible {
+  outline: none;
+  border-color: var(--accent-purple);
+  background: var(--bg-hover);
+}
+.math-sheet-item-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.math-sheet-notation {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--bg-selection);
+  color: var(--accent-cyan);
+  border: 1px solid var(--border-field);
+}
+.math-sheet-latex {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--bg-chrome);
+  color: var(--accent-orange);
+  word-break: break-word;
+}
+.math-sheet-render {
+  margin-left: auto;
+  padding: 1px 6px;
+  font-size: 13.5px;
+  color: var(--fg);
+  max-width: 100%;
+  overflow-x: auto;
+}
+.math-sheet-item-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.math-sheet-desc {
+  font-size: 11.5px;
+  color: var(--fg-soft);
+  line-height: 1.35;
+}
+.math-sheet-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.math-sheet-copy {
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border-field);
+  border-radius: 3px;
+  background: var(--btn-sec-bg);
+  color: var(--fg-soft);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.math-sheet-copy:hover {
+  border-color: var(--accent-purple);
+  background: var(--btn-sec-hover);
+  color: var(--fg);
+}
+.math-sheet-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 13px;
+}

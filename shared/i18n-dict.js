@@ -490,7 +490,15 @@
     rnoteExportPng: 'Export View as PNG',
     rnoteExportedPng: 'Exported Rnote PNG: {0}',
     rnoteStats: '{0} images, {1} strokes',
-    rnoteReadOnlyHint: 'Rnote viewer is read-only — use Export PNG to save a snapshot.'
+    rnoteReadOnlyHint: 'Rnote viewer is read-only — use Export PNG to save a snapshot.',
+
+    // Math Adaptation & Cheat Sheet
+    mathAdaptInline: 'Adapt math to LaTeX ($...$)',
+    mathAdaptBlock: 'Adapt math as block ($$...$$)',
+    mathAdaptSheet: 'Math notation & LaTeX cheat sheet...',
+    mathAdaptNoSelection: 'Select a math expression first.',
+    mathAdaptDone: 'Math adapted to LaTeX',
+    mathAdaptBtnTitle: 'Math Notation & LaTeX Cheat Sheet'
   };
 
   const ES = {
@@ -976,7 +984,15 @@
     rnoteExportPng: 'Exportar vista como PNG',
     rnoteExportedPng: 'PNG de Rnote exportado: {0}',
     rnoteStats: '{0} imágenes, {1} trazos',
-    rnoteReadOnlyHint: 'El visor Rnote es de solo lectura — usa Exportar PNG para guardar una captura.'
+    rnoteReadOnlyHint: 'El visor Rnote es de solo lectura — usa Exportar PNG para guardar una captura.',
+
+    // Math Adaptation & Cheat Sheet
+    mathAdaptInline: 'Adaptar matemáticas a LaTeX ($...$)',
+    mathAdaptBlock: 'Adaptar matemáticas en bloque ($$...$$)',
+    mathAdaptSheet: 'Guía de notación matemática y LaTeX...',
+    mathAdaptNoSelection: 'Selecciona primero una expresión matemática.',
+    mathAdaptDone: 'Matemáticas adaptadas a LaTeX',
+    mathAdaptBtnTitle: 'Guía de notación matemática y LaTeX'
   };
 
   return { en: EN, es: ES };

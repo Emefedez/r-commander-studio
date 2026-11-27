@@ -59,11 +59,11 @@
 
   // LaTeX symbols & math typesetting (from NoteComplete's rich-text.js, using HTML entities for arrows so zero Unicode Emoji codepoints appear)
   const SYMBOLS = {
-    rightarrow: '&rarr;', to: '&rarr;', leftarrow: '&larr;', gets: '&larr;', Rightarrow: '&rArr;', Leftarrow: '&lArr;',
-    leftrightarrow: '&harr;', Leftrightarrow: '&hArr;', implies: '&rArr;', iff: '&hArr;', mapsto: '&#8614;',
+    rightarrow: '&rarr;', to: '&rarr;', longrightarrow: '&xrarr;', leftarrow: '&larr;', gets: '&larr;', Rightarrow: '&rArr;', Leftarrow: '&lArr;',
+    leftrightarrow: '&harr;', Leftrightarrow: '&hArr;', implies: '&rArr;', iff: '&hArr;', mapsto: '&#8614;', mid: '|',
     times: '&times;', cdot: '&middot;', div: '&divide;', pm: '&plusmn;', mp: '&#8723;', le: '&le;', leq: '&le;', ge: '&ge;', geq: '&ge;',
     neq: '&ne;', ne: '&ne;', approx: '&asymp;', equiv: '&equiv;', sim: '&sim;', propto: '&prop;',
-    infty: '&infin;', sum: '&sum;', prod: '&prod;', int: '&int;', oint: '&#8750;', partial: '&part;', nabla: '&nabla;',
+    infty: '&infin;', sum: '&sum;', prod: '&prod;', int: '&int;', oint: '&#8750;', partial: '&part;', nabla: '&nabla;', lim: 'lim',
     in: '&isin;', notin: '&notin;', subset: '&sub;', subseteq: '&sube;', cup: '&cup;', cap: '&cap;', emptyset: '&empty;',
     forall: '&forall;', exists: '&exist;', neg: '&not;', land: '&and;', lor: '&or;', oplus: '&oplus;', otimes: '&otimes;',
     ldots: '&hellip;', cdots: '&#8943;', dots: '&hellip;', degree: '&deg;', circ: '&#8728;',
@@ -81,11 +81,24 @@
     s = s.replace(/\\(?:text|mathrm|operatorname)\{([^{}]*)\}/g, '<span class="math-rm">$1</span>');
     s = s.replace(/\\mathbf\{([^{}]*)\}/g, '<strong>$1</strong>');
     s = s.replace(/\\mathit\{([^{}]*)\}/g, '<em>$1</em>');
-    // \hat{x}, \bar{x}, \tilde{x}, \vec{x}
+    // \overset{top}{op}
+    s = s.replace(
+      /\\overset\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\{([^{}]*)\}/g,
+      '<span class="math-overset"><span class="math-over-top">$1</span><span class="math-over-base">$2</span></span>'
+    );
+    // \binom{a}{b}
+    s = s.replace(
+      /\\binom\{([^{}]*)\}\{([^{}]*)\}/g,
+      '<span class="math-binom">(<span class="math-binom-col"><span>$1</span><span>$2</span></span>)</span>'
+    );
+    // \hat{x}, \widehat{...}, \bar{x}, \overline{...}, \tilde{x}, \widetilde{...}, \vec{x}, \overrightarrow{...}
+    s = s.replace(/\\overline\{([^{}]*)\}/g, '<span class="math-overline">$1</span>');
     s = s.replace(/\\bar\{([^{}]*)\}/g, '<span class="math-bar">$1&#772;</span>');
-    s = s.replace(/\\hat\{([^{}]*)\}/g, '$1&#770;');
-    s = s.replace(/\\tilde\{([^{}]*)\}/g, '$1&#771;');
-    // \sqrt{...}
+    s = s.replace(/\\(?:wide)?hat\{([^{}]*)\}/g, '$1&#770;');
+    s = s.replace(/\\(?:wide)?tilde\{([^{}]*)\}/g, '$1&#771;');
+    s = s.replace(/\\(?:vec|overrightarrow)\{([^{}]*)\}/g, '<span class="math-vec">$1</span>');
+    // \sqrt[n]{...} and \sqrt{...}
+    s = s.replace(/\\sqrt\[([^\]]+)\]\{([^{}]*)\}/g, '<span class="math-sqrt"><sup class="math-sqrt-idx">$1</sup>&radic;<span class="math-radicand">$2</span></span>');
     s = s.replace(/\\sqrt\{([^{}]*)\}/g, '<span class="math-sqrt">&radic;<span class="math-radicand">$1</span></span>');
     // \frac{a}{b} (two passes for nested fractions)
     for (let pass = 0; pass < 2; pass++) {

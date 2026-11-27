@@ -94,6 +94,10 @@
             { sep: true },
             { label: t('find'), accel: 'Ctrl+F', cmd: 'find' },
             { sep: true },
+            { label: t('mathAdaptInline'), accel: 'Ctrl+Alt+M', cmd: 'math-adapt-inline' },
+            { label: t('mathAdaptBlock'), accel: 'Ctrl+Alt+Shift+M', cmd: 'math-adapt-block' },
+            { label: t('mathAdaptSheet'), cmd: 'math-adapt-sheet' },
+            { sep: true },
             ...rcmdrSub('Edit')
           ]
         },
@@ -172,6 +176,7 @@
           label: t('menuHelp'),
           items: [
             { label: t('guideBtnTitle'), cmd: 'open-guide' },
+            { label: t('mathAdaptSheet'), cmd: 'math-adapt-sheet' },
             { label: t('wizardMenuItem'), cmd: 'open-setup-wizard' },
             { label: t('rHelpMenu'), accel: 'F1', cmd: 'r-help' },
             { sep: true },

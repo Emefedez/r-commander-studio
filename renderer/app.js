@@ -3363,6 +3363,114 @@ boxplot(Sepal.Length ~ Species, data = iris,
     ed.focus();
   }
 
+  // --- On-demand Math Adaptation (shorthand -> LaTeX) & Cheat Sheet ---
+  function isEditableTextInput(el) {
+    if (!el || el.disabled || el.readOnly) return false;
+    if (el.closest?.('.monaco-editor') || el.closest?.('.math-adapt-sheet')) return false;
+    if (el.tagName === 'TEXTAREA') return true;
+    if (el.tagName === 'INPUT') {
+      const tp = (el.type || 'text').toLowerCase();
+      return tp === 'text' || tp === 'search' || tp === 'url' || tp === 'email';
+    }
+    return false;
+  }
+
+  function replaceTextInputRange(el, start, end, text) {
+    el.focus();
+    el.setSelectionRange(start, end);
+    let inserted = false;
+    try {
+      inserted = document.execCommand('insertText', false, text);
+    } catch {
+      inserted = false;
+    }
+    if (!inserted) {
+      el.setRangeText(text, start, end, 'end');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  function adaptSelectionInMonaco(ed, wrap = 'inline') {
+    if (!ed || !window.StudioMathAdapt?.adaptMath) return false;
+    const model = ed.getModel();
+    const sel = ed.getSelection();
+    if (!model || !sel || sel.isEmpty()) {
+      showToast(t('mathAdaptNoSelection'), 'warn');
+      return false;
+    }
+    const selected = model.getValueInRange(sel);
+    if (!selected.trim()) {
+      showToast(t('mathAdaptNoSelection'), 'warn');
+      return false;
+    }
+    const adapted = window.StudioMathAdapt.adaptMath(selected, { wrap });
+    if (!adapted) return false;
+    ed.pushUndoStop();
+    ed.executeEdits('math-adapt', [{ range: sel, text: adapted, forceMoveMarkers: true }]);
+    ed.pushUndoStop();
+    ed.focus();
+    showToast(t('mathAdaptDone'));
+    return true;
+  }
+
+  function adaptSelectionInTextInput(el, wrap = 'inline') {
+    if (!isEditableTextInput(el) || !window.StudioMathAdapt?.adaptMath) return false;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    if (end <= start) {
+      showToast(t('mathAdaptNoSelection'), 'warn');
+      return false;
+    }
+    const selected = el.value.slice(start, end);
+    if (!selected.trim()) {
+      showToast(t('mathAdaptNoSelection'), 'warn');
+      return false;
+    }
+    const adapted = window.StudioMathAdapt.adaptMath(selected, { wrap });
+    if (!adapted) return false;
+    replaceTextInputRange(el, start, end, adapted);
+    showToast(t('mathAdaptDone'));
+    return true;
+  }
+
+  function adaptMathSelection(wrap = 'inline') {
+    const activeEl = document.activeElement;
+    if (isEditableTextInput(activeEl)) {
+      return adaptSelectionInTextInput(activeEl, wrap);
+    }
+    return adaptSelectionInMonaco(state.editors[state.focusedGroup], wrap);
+  }
+
+  function openMathCheatSheet(anchor = null, targetInput = null) {
+    if (!window.StudioMathAdaptSheet?.openMathAdaptSheet) return;
+    const inputEl = targetInput && isEditableTextInput(targetInput)
+      ? targetInput
+      : isEditableTextInput(document.activeElement)
+        ? document.activeElement
+        : null;
+    const savedStart = inputEl ? (inputEl.selectionStart ?? inputEl.value.length) : 0;
+    const savedEnd = inputEl ? (inputEl.selectionEnd ?? inputEl.value.length) : 0;
+    const targetEd = state.editors[state.focusedGroup];
+
+    window.StudioMathAdaptSheet.openMathAdaptSheet({
+      anchor,
+      onInsert: (snippet) => {
+        if (inputEl && inputEl.isConnected) {
+          replaceTextInputRange(inputEl, savedStart, savedEnd, snippet);
+        } else if (targetEd) {
+          const sel = targetEd.getSelection();
+          if (sel) {
+            targetEd.pushUndoStop();
+            targetEd.executeEdits('math-adapt', [{ range: sel, text: snippet, forceMoveMarkers: true }]);
+            targetEd.pushUndoStop();
+            targetEd.focus();
+          }
+        }
+      },
+      status: (msg, isErr) => showToast(msg, isErr ? 'error' : 'info')
+    });
+  }
+
   // --- Preview, Rich Markdown Viewer (NoteComplete-grade) & Knit ---
   function renderLivePreview() {
     const tab = activeTab();
@@ -4270,6 +4378,15 @@ boxplot(Sepal.Length ~ Species, data = iris,
       case 'find':
         state.editors[state.focusedGroup]?.trigger('menu', cmd === 'find' ? 'actions.find' : cmd, null);
         break;
+      case 'math-adapt-inline':
+        adaptMathSelection('inline');
+        break;
+      case 'math-adapt-block':
+        adaptMathSelection('block');
+        break;
+      case 'math-adapt-sheet':
+        openMathCheatSheet($('btnMathSheet'));
+        break;
       default:
         if (typeof cmd === 'string' && cmd.startsWith('set-ai-harness:')) {
           const prov = cmd.slice('set-ai-harness:'.length);
@@ -4358,6 +4475,9 @@ boxplot(Sepal.Length ~ Species, data = iris,
       cmdEntry('inline-copilot', 'copilotInlineFix', 'Ctrl+I'),
       cmdEntry('install-t3code', 'copilotInstallBtn'),
       cmdEntry('open-guide', 'guideBtnTitle'),
+      cmdEntry('math-adapt-inline', 'mathAdaptInline', 'Ctrl+Alt+M'),
+      cmdEntry('math-adapt-block', 'mathAdaptBlock', 'Ctrl+Alt+Shift+M'),
+      cmdEntry('math-adapt-sheet', 'mathAdaptSheet'),
       cmdEntry('toggle-autosave', 'menuAutoSave'),
       cmdEntry('r-help', 'rHelpMenu', 'F1'),
       cmdEntry('interrupt-r', 'interruptR'),
@@ -4676,6 +4796,33 @@ boxplot(Sepal.Length ~ Species, data = iris,
       label: t('openDocsBtn'),
       contextMenuGroupId: 'navigation',
       run: () => openDocsForCursor()
+    });
+    ed.addAction({
+      id: 'studio.context.mathAdaptInline',
+      label: t('mathAdaptInline'),
+      precondition: 'editorHasSelection',
+      keybindings: [state.monaco.KeyMod.CtrlCmd | state.monaco.KeyMod.Alt | state.monaco.KeyCode.KeyM],
+      contextMenuGroupId: '1_modification',
+      contextMenuOrder: 2.1,
+      run: (editor) => adaptSelectionInMonaco(editor, 'inline')
+    });
+    ed.addAction({
+      id: 'studio.context.mathAdaptBlock',
+      label: t('mathAdaptBlock'),
+      precondition: 'editorHasSelection',
+      keybindings: [
+        state.monaco.KeyMod.CtrlCmd | state.monaco.KeyMod.Alt | state.monaco.KeyMod.Shift | state.monaco.KeyCode.KeyM
+      ],
+      contextMenuGroupId: '1_modification',
+      contextMenuOrder: 2.2,
+      run: (editor) => adaptSelectionInMonaco(editor, 'block')
+    });
+    ed.addAction({
+      id: 'studio.context.mathAdaptSheet',
+      label: t('mathAdaptSheet'),
+      contextMenuGroupId: '1_modification',
+      contextMenuOrder: 2.3,
+      run: () => openMathCheatSheet($('btnMathSheet'))
     });
     state.editors[g] = ed;
   }
@@ -5317,7 +5464,29 @@ boxplot(Sepal.Length ~ Species, data = iris,
     else handleStudioCommand('toggle-preview');
   });
   $('btnKnit').addEventListener('click', () => handleStudioCommand('knit'));
+  $('btnMathSheet')?.addEventListener('click', (e) => openMathCheatSheet(e.currentTarget));
   $('btnDocsCursor').addEventListener('click', openDocsForCursor);
+
+  document.addEventListener('contextmenu', (e) => {
+    const target = e.target;
+    if (!isEditableTextInput(target)) return;
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? 0;
+    const hasSel = end > start && target.value.slice(start, end).trim().length > 0;
+    if (!hasSel && target.tagName !== 'TEXTAREA') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const items = [];
+    if (hasSel) {
+      items.push(
+        { label: t('mathAdaptInline'), action: () => adaptSelectionInTextInput(target, 'inline') },
+        { label: t('mathAdaptBlock'), action: () => adaptSelectionInTextInput(target, 'block') },
+        { sep: true }
+      );
+    }
+    items.push({ label: t('mathAdaptSheet'), action: () => openMathCheatSheet(target, target) });
+    showContextMenu(e.clientX, e.clientY, items);
+  });
   $('btnSplit')?.addEventListener('click', () => handleStudioCommand('toggle-split'));
   $('btnToggleExplorer').addEventListener('click', () => handleStudioCommand('toggle-explorer-sidebar'));
   $('btnToggleRcmdr').addEventListener('click', () => handleStudioCommand('toggle-rcmdr-sidebar'));
