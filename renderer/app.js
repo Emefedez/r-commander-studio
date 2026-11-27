@@ -3403,7 +3403,12 @@ boxplot(Sepal.Length ~ Species, data = iris,
       showToast(t('mathAdaptNoSelection'), 'warn');
       return false;
     }
-    const adapted = window.StudioMathAdapt.adaptMath(selected, { wrap });
+    const startOff = model.getOffsetAt(sel.getStartPosition());
+    const endOff = model.getOffsetAt(sel.getEndPosition());
+    const insideMath =
+      wrap === 'inline' &&
+      Boolean(window.StudioMathAdapt.isInsideMathDelimiters?.(model.getValue(), startOff, endOff));
+    const adapted = window.StudioMathAdapt.adaptMath(selected, { wrap: insideMath ? 'none' : wrap });
     if (!adapted) return false;
     ed.pushUndoStop();
     ed.executeEdits('math-adapt', [{ range: sel, text: adapted, forceMoveMarkers: true }]);
@@ -3426,7 +3431,10 @@ boxplot(Sepal.Length ~ Species, data = iris,
       showToast(t('mathAdaptNoSelection'), 'warn');
       return false;
     }
-    const adapted = window.StudioMathAdapt.adaptMath(selected, { wrap });
+    const insideMath =
+      wrap === 'inline' &&
+      Boolean(window.StudioMathAdapt.isInsideMathDelimiters?.(el.value, start, end));
+    const adapted = window.StudioMathAdapt.adaptMath(selected, { wrap: insideMath ? 'none' : wrap });
     if (!adapted) return false;
     replaceTextInputRange(el, start, end, adapted);
     showToast(t('mathAdaptDone'));
@@ -4824,6 +4832,21 @@ boxplot(Sepal.Length ~ Species, data = iris,
       contextMenuOrder: 2.3,
       run: () => openMathCheatSheet($('btnMathSheet'))
     });
+    ed.getDomNode()?.addEventListener(
+      'contextmenu',
+      (e) => {
+        if (!e.shiftKey) return;
+        const model = ed.getModel();
+        const sel = ed.getSelection();
+        if (!model || !sel || sel.isEmpty()) return;
+        const selected = model.getValueInRange(sel);
+        if (!selected.trim() || /[\u3400-\u9FFF]/.test(selected)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        adaptSelectionInMonaco(ed, 'inline');
+      },
+      true
+    );
     state.editors[g] = ed;
   }
 
@@ -5472,7 +5495,14 @@ boxplot(Sepal.Length ~ Species, data = iris,
     if (!isEditableTextInput(target)) return;
     const start = target.selectionStart ?? 0;
     const end = target.selectionEnd ?? 0;
-    const hasSel = end > start && target.value.slice(start, end).trim().length > 0;
+    const selText = end > start ? target.value.slice(start, end) : '';
+    const hasSel = selText.trim().length > 0;
+    if (e.shiftKey && hasSel && !/[\u3400-\u9FFF]/.test(selText)) {
+      e.preventDefault();
+      e.stopPropagation();
+      adaptSelectionInTextInput(target, 'inline');
+      return;
+    }
     if (!hasSel && target.tagName !== 'TEXTAREA') return;
     e.preventDefault();
     e.stopPropagation();

@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   adaptMathToLatex,
   adaptMath,
+  isInsideMathDelimiters,
   MATH_ADAPT_CHEATSHEET
 } = require('../shared/math-adapt');
 
@@ -263,4 +264,40 @@ test('MATH_ADAPT_CHEATSHEET is well-formed and every example matches adaptMathTo
       );
     }
   }
+});
+
+test('adapting expressions containing already-adapted math merges delimiters cleanly', () => {
+  assert.equal(
+    adaptMath('5^(5-43) - 12 + $\\binom{5}{3}$', { wrap: 'inline' }),
+    '$5^{5-43} - 12 + \\binom{5}{3}$'
+  );
+  assert.equal(
+    adaptMath('$5^{5-43}$ - 12 + $\\binom{5}{3}$', { wrap: 'inline' }),
+    '$5^{5-43} - 12 + \\binom{5}{3}$'
+  );
+  assert.equal(
+    adaptMath('$5^{5-43} - 12 + $\\binom{5}{3}$$', { wrap: 'inline' }),
+    '$5^{5-43} - 12 + \\binom{5}{3}$'
+  );
+  assert.equal(
+    adaptMath('5^(5-43) - 12 + $$\\binom{5}{3}$$', { wrap: 'block' }),
+    '$$5^{5-43} - 12 + \\binom{5}{3}$$'
+  );
+  assert.equal(
+    adaptMath('\\$5 + x^2', { wrap: 'inline' }),
+    '$\\$5 + x^{2}$'
+  );
+});
+
+test('isInsideMathDelimiters detects selections inside existing $...$ or $$...$$ spans', () => {
+  const inline = 'Here is $5^(5-43) - 12 + \\binom{5}{3}$ in text';
+  const start = inline.indexOf('5^(5-43)');
+  assert.equal(isInsideMathDelimiters(inline, start, start + 8), true);
+  assert.equal(isInsideMathDelimiters(inline, 0, 4), false);
+  assert.equal(isInsideMathDelimiters(inline, 5, start + 8), false);
+
+  const block = 'Intro\n$$\n5^(5-43) + x\n$$\nOutro';
+  const bStart = block.indexOf('5^(5-43)');
+  assert.equal(isInsideMathDelimiters(block, bStart, bStart + 8), true);
+  assert.equal(isInsideMathDelimiters(block, 0, 5), false);
 });
